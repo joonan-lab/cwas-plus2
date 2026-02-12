@@ -14,6 +14,12 @@ import pandas as pd
 from cwas.core.common import int_to_bit_arr
 from cwas.utils.log import print_err
 
+try:
+    from cwas_core import parse_vcf as _rust_parse_vcf
+    _USE_RUST_VCF = True
+except ImportError:
+    _USE_RUST_VCF = False
+
 
 # TODO: Make the code much clearer
 def parse_annotated_vcf(vcf_path: pathlib.Path) -> pd.DataFrame:
@@ -21,6 +27,22 @@ def parse_annotated_vcf(vcf_path: pathlib.Path) -> pd.DataFrame:
     Predictor (VEP) and CWAS annotation information and make a
     pandas.DataFrame object listing annotated variants.
     """
+    if _USE_RUST_VCF:
+        return _parse_annotated_vcf_rust(vcf_path)
+    return _parse_annotated_vcf_python(vcf_path)
+
+
+def _parse_annotated_vcf_rust(vcf_path: pathlib.Path) -> pd.DataFrame:
+    """Rust-accelerated VCF parsing."""
+    parsed = _rust_parse_vcf(str(vcf_path))
+    columns = list(parsed["columns"])
+    data = parsed["data"]
+    result = pd.DataFrame(data, columns=columns)
+    return result
+
+
+def _parse_annotated_vcf_python(vcf_path: pathlib.Path) -> pd.DataFrame:
+    """Original Python VCF parsing (fallback)."""
     variant_col_names = []
     variant_rows = []  # Item: a list of values of each column
     csq_field_names = []  # CSQ is information from VEP
@@ -93,7 +115,6 @@ def _parse_info_column(
     info_dicts = list(map(_parse_info_str, info_values))
     info_df = pd.DataFrame(info_dicts)
     csq_df = _parse_csq_column(info_df["CSQ"], csq_field_names)
-    #annot_df = _parse_annot_column(info_df["ANNOT"], annot_field_names)
     info_df.drop(columns=["CSQ"], inplace=True)
     info_df = pd.concat([info_df, csq_df], axis="columns")
 
@@ -152,19 +173,6 @@ def parse_gene_matrix(gene_matrix_path: pathlib.Path) -> dict:
     """
     with gene_matrix_path.open("r") as gene_matrix_file:
         return _parse_gene_matrix(gene_matrix_file)
-
-
-def _parse_gene_matrix(gene_matrix_file: TextIOWrapper) -> dict:
-    result = dict()
-    header = gene_matrix_file.readline()
-    all_gene_types = np.array(header.rstrip("\n").split("\t")[2:])
-
-    for line in gene_matrix_file:
-        _, gene_symbol, *gene_matrix_values = line.rstrip("\n").split("\t")
-        gene_types = all_gene_types[np.array(gene_matrix_values) == "1"]
-        result[gene_symbol] = set(gene_types)
-
-    return result
 
 
 def _parse_gene_matrix(gene_matrix_file: TextIOWrapper) -> dict:

@@ -1,6 +1,9 @@
 from pathlib import Path
 from typing import Optional
-import argparse, zarr, gzip, re
+import argparse
+import gzip
+import re
+import zarr
 from cwas.core.categorization.parser import _parse_annot_field
 import numpy as np
 import pandas as pd
@@ -101,10 +104,7 @@ class ExtractVariant(Runnable):
         else:
             save_name = '.'.join([self.tag, 'extracted_variants.txt.gz'])
         f_name = re.sub(r'annotated\.vcf\.gz|annotated\.vcf', save_name, self.input_path.name)
-        return Path(
-            f"{self.output_dir_path}/" +
-            f"{f_name}"
-        )
+        return self.output_dir_path / f_name
     
     def extract_idx_by_int(self, n: int) -> list:
         """Get an index from the input list by using the input integer"""

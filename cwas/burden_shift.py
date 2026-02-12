@@ -1,4 +1,5 @@
-import argparse, os
+import argparse
+import os
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -14,8 +15,6 @@ import re
 from cwas.utils.log import print_progress, print_arg
 from cwas.runnable import Runnable
 from cwas.utils.check import check_is_file, check_is_dir
-
-pd.set_option('mode.chained_assignment',  None)
 
 class BurdenShift(Runnable):
     def __init__(self, args: argparse.Namespace):
@@ -49,17 +48,17 @@ class BurdenShift(Runnable):
         return self.args.input_path.resolve()
 
     @property
-    def plot_title(self) -> float:
+    def plot_title(self) -> str:
         return self.args.plot_title
     
     @property
-    def burden_res(self):
+    def burden_res(self) -> pl.DataFrame:
         if self._burden_res is None:
             self._burden_res = pl.read_csv(self.input_file, separator="\t")
         return self._burden_res
     
     @property
-    def burden_shift_res(self) -> Path:
+    def burden_shift_res(self) -> pl.DataFrame:
         if self._burden_shift_res is None:
             self._burden_shift_res = pl.read_csv(self.args.burden_res.resolve(), separator="\t")
         return self._burden_shift_res       
@@ -73,13 +72,13 @@ class BurdenShift(Runnable):
         return self.args.cat_set_file.resolve() 
 
     @property
-    def cat_sets(self):
+    def cat_sets(self) -> pd.DataFrame:
         if self._cat_sets is None:
             self._cat_sets = self._create_category_sets()
         return self._cat_sets
     
     @property
-    def cat_counts(self) -> Path:
+    def cat_counts(self) -> pd.DataFrame:
         if self._cat_counts is None:
             self._cat_counts = pd.read_csv(self.args.cat_count_file.resolve(), sep='\t')
         return self._cat_counts
@@ -91,9 +90,7 @@ class BurdenShift(Runnable):
     @property
     def c_cutoff(self) -> int:
         if self.args.count_cutoff < 0:
-            raise ValueError(
-                print("Count cutoff is must be positive value.")
-            )        
+            raise ValueError("Count cutoff must be a positive value.")        
         return self.args.count_cutoff
     
     @property
@@ -367,50 +364,48 @@ class BurdenShift(Runnable):
         if self.tag is not None:
             plot_output += f".{self.tag}"
         plot_output += ".dist_plot.pdf"
-        pdfsave = PdfPages(os.path.join(self.output_dir_path, plot_output))
-        for i in tqdm(range(len(filt_cat_sets.columns))):
-            setName = None
-            testCats = None
-            ## Define the name of the set, and the cateories within it
-            if i == 0:
-                setName = 'All'
-                testCats = filt_cat_sets['Category']
-            else:
-                setName = filt_cat_sets.columns[i]
-                testCats = filt_cat_sets.loc[filt_cat_sets.iloc[:,i]==1, 'Category'].tolist()    
-            
-            if len(testCats) > 0:
-                # Subset true results to only the categories in the set
-                burdenResTrim = self.burden_res.filter(self.burden_res['Category'].is_in(testCats))
+        with PdfPages(self.output_dir_path / plot_output) as pdfsave:
+            for i in tqdm(range(len(filt_cat_sets.columns))):
+                setName = None
+                testCats = None
+                ## Define the name of the set, and the cateories within it
+                if i == 0:
+                    setName = 'All'
+                    testCats = filt_cat_sets['Category']
+                else:
+                    setName = filt_cat_sets.columns[i]
+                    testCats = filt_cat_sets.loc[filt_cat_sets.iloc[:,i]==1, 'Category'].tolist()
 
-                # Find case and control counts from this subset of categories (Two-sided)
-                nObsCase = len(burdenResTrim.filter((burdenResTrim['P']<=self.pval)&(burdenResTrim['Relative_Risk']>1)))
-                nObsCtrl = len(burdenResTrim.filter((burdenResTrim['P']<=self.pval)&(burdenResTrim['Relative_Risk']<1)))
-                
-                # Subset burden shift results to only the categories in the set
-                burdenShitTrim = self.burden_shift_res.select(list(set(self.burden_shift_res.columns)&set(testCats))).to_pandas()
-                permCounts = pd.DataFrame(burdenShitTrim.apply(lambda x: self._count_cats(x, self.pval), axis=1).tolist(), columns=['case','control'])
-                                
-                # Compare the observed counts to the permuted counts to calculate shift p-values
-                nPermCase = len(np.where(permCounts['case']>=nObsCase)[0])
-                pCase = nPermCase / len(permCounts)
-                nPermCtrl = len(np.where(permCounts['control']>=nObsCtrl)[0])
-                pCtrl = nPermCtrl / len(permCounts)
-                                
-                # Plot the results
-                fig1, fig2 = self._draw_shiftDistPlot(permCounts, setName, nObsCase, nObsCtrl, pCase, pCtrl)
-                pdfsave.savefig(fig1)
-                pdfsave.savefig(fig2)
-                
-                # Add data to output object
-                tmp_df = pd.DataFrame([{'Category_set':setName,
-                                       "N_cats_case":nObsCase,
-                                       'N_cats_control':nObsCtrl,
-                                       'P_case':pCase,
-                                       'P_control':pCtrl}])
-                obsTab = pd.concat([obsTab, tmp_df])
-                    
-        pdfsave.close()
+                if len(testCats) > 0:
+                    # Subset true results to only the categories in the set
+                    burdenResTrim = self.burden_res.filter(self.burden_res['Category'].is_in(testCats))
+
+                    # Find case and control counts from this subset of categories (Two-sided)
+                    nObsCase = len(burdenResTrim.filter((burdenResTrim['P']<=self.pval)&(burdenResTrim['Relative_Risk']>1)))
+                    nObsCtrl = len(burdenResTrim.filter((burdenResTrim['P']<=self.pval)&(burdenResTrim['Relative_Risk']<1)))
+
+                    # Subset burden shift results to only the categories in the set
+                    burdenShitTrim = self.burden_shift_res.select(list(set(self.burden_shift_res.columns)&set(testCats))).to_pandas()
+                    permCounts = pd.DataFrame(burdenShitTrim.apply(lambda x: self._count_cats(x, self.pval), axis=1).tolist(), columns=['case','control'])
+
+                    # Compare the observed counts to the permuted counts to calculate shift p-values
+                    nPermCase = len(np.where(permCounts['case']>=nObsCase)[0])
+                    pCase = nPermCase / len(permCounts)
+                    nPermCtrl = len(np.where(permCounts['control']>=nObsCtrl)[0])
+                    pCtrl = nPermCtrl / len(permCounts)
+
+                    # Plot the results
+                    fig1, fig2 = self._draw_shiftDistPlot(permCounts, setName, nObsCase, nObsCtrl, pCase, pCtrl)
+                    pdfsave.savefig(fig1)
+                    pdfsave.savefig(fig2)
+
+                    # Add data to output object
+                    tmp_df = pd.DataFrame([{'Category_set':setName,
+                                           "N_cats_case":nObsCase,
+                                           'N_cats_control':nObsCtrl,
+                                           'P_case':pCase,
+                                           'P_control':pCtrl}])
+                    obsTab = pd.concat([obsTab, tmp_df])
         
         self._obsTab = obsTab
         
@@ -420,7 +415,7 @@ class BurdenShift(Runnable):
             obsFile += f".{self.tag}"
         obsFile += ".txt"
         
-        obsTab.to_csv(os.path.join(self.output_dir_path, obsFile), sep="\t", index=False)
+        obsTab.to_csv(self.output_dir_path / obsFile, sep="\t", index=False)
         
     def draw_shiftResPlot(self):
         output_name = re.sub(r'burden_test\.txt\.gz|burden_test\.txt', '', os.path.basename(self.input_file))
@@ -514,9 +509,10 @@ class BurdenShift(Runnable):
         ax[1].tick_params(width=1.5, size=7)
 
         plt.tight_layout()
-        plt.savefig(os.path.join(self.output_dir_path, plot_output), bbox_inches='tight')    
+        plt.savefig(self.output_dir_path / plot_output, bbox_inches='tight')    
 
     def run(self):
+        pd.set_option('mode.chained_assignment', None)
         self.burden_shift()
         self.draw_shiftResPlot()
         print_progress("Done")

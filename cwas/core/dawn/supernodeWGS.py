@@ -14,6 +14,7 @@ from scipy.stats import rankdata
 import pickle
 import random
 import igraph
+from cwas.utils.log import print_progress
 import itertools
 import multiprocessing as mp
 from concurrent.futures import ProcessPoolExecutor
@@ -197,7 +198,7 @@ class supernodeWGS_func:
 
     def hmrf(self, z, adj, seedindex=None, null_mean=0, null_sigma=np.nan, pthres=0.05, iter=100, verbose=False, tol=1e-3):
         assert len(z) == len(seedindex) and adj.shape[0] == len(z) and adj.shape[1] == len(z)
-        
+
         random.seed(self.seed)
 
         if seedindex is None:
@@ -205,14 +206,18 @@ class supernodeWGS_func:
 
         d = len(z)
         idx = random.sample(range(d), d)
-        
+
         z = np.array(z)[idx]
-        adj = adj.iloc[idx,idx]
+        # Convert adj to numpy array once to avoid repeated pandas indexing
+        if isinstance(adj, pd.DataFrame):
+            adj_arr = adj.iloc[idx, idx].values
+        else:
+            adj_arr = np.asarray(adj)[np.ix_(idx, idx)]
         seedindex = np.array(seedindex)[idx]
 
         i_vec = np.int64(z > norm.ppf(1-pthres, loc=null_mean, scale=(1 if np.isnan(null_sigma) else null_sigma)))
         assert sum(i_vec) != 0, "There is no risk category"
-        
+
         b = 0; c = 0
 
         mu2 = np.mean(z[(i_vec==1) & (seedindex==0)])
@@ -225,49 +230,53 @@ class supernodeWGS_func:
             sigma2 = null_sigma
             sigma1 = null_sigma
 
-        posterior = [0 for x in range(d)]
+        posterior = np.zeros(d)
 
         for iteri in range(1, iter+1):
             if verbose:
-                print("Start iteration : {}".format(iteri))
+                print_progress("Start iteration : {}".format(iteri))
 
-            res = self._optimize_bc(adj, i_vec, 20)
+            res = self._optimize_bc(adj_arr, i_vec, 20)
             b_new = res['b']; c_new = res['c']
 
             if (abs(c - c_new) < tol) & (abs(b - b_new) < tol):
                 break
-            
+
             b = b_new; c = c_new
 
             for i in range(d):
-                new1 = np.exp(b * i_vec[i] + c * i_vec[i] * adj.iloc[i,] @ i_vec)
-                new2 = np.exp(b * (1 - i_vec[i]) + c * (1 - i_vec[i]) * adj.iloc[i,] @ i_vec)
+                graph_i = adj_arr[i] @ i_vec
+                new1 = np.exp(b * i_vec[i] + c * i_vec[i] * graph_i)
+                new2 = np.exp(b * (1 - i_vec[i]) + c * (1 - i_vec[i]) * graph_i)
 
                 p1 = norm.pdf(z[i], mu2 * i_vec[i] + mu1 * (1 - i_vec[i]), np.sqrt(sigma2 * i_vec[i] + sigma1 * (1 - i_vec[i]))) * new1 / (new1 + new2)
-                p2 = norm.pdf(z[i], mu2 * (1 - i_vec[i]) + mu1 * i_vec[i], np.sqrt(sigma2 * (1 - i_vec[i]) + sigma1 * i_vec[i])) * new2 / (new1 + new2)               
+                p2 = norm.pdf(z[i], mu2 * (1 - i_vec[i]) + mu1 * i_vec[i], np.sqrt(sigma2 * (1 - i_vec[i]) + sigma1 * i_vec[i])) * new2 / (new1 + new2)
 
                 if (i_vec[i] == 1):
                     posterior[i] = p1 / (p1 + p2)
                 else:
                     posterior[i] = p2 / (p1 + p2)
-                    
+
                 if p2 > p1:
                     i_vec[i] = 1 - i_vec[i]
                 if seedindex[i] != 0:
                     i_vec[i] = 1
-                    
-            mu2 = sum(np.array(posterior)[seedindex==0] * z[seedindex==0]) / sum(np.array(posterior)[seedindex==0])
-            sigma2 = sum(np.array(posterior)[seedindex==0] * (z[seedindex==0]-mu2) ** 2) / sum(np.array(posterior)[seedindex==0])
+
+            seed_mask = (seedindex == 0)
+            posterior_seed = posterior[seed_mask]
+            z_seed = z[seed_mask]
+            mu2 = np.sum(posterior_seed * z_seed) / np.sum(posterior_seed)
+            sigma2 = np.sum(posterior_seed * (z_seed - mu2) ** 2) / np.sum(posterior_seed)
 
             if np.isnan(null_sigma):
-                sigma1 = sum((1 - np.array(posterior)[seedindex==0]) * (z[seedindex==0]) ** 2) / sum(1 - np.array(posterior)[seedindex==0])
-                sigmas = (sigma1 * sum(np.array(posterior)[seedindex==0]) + sigma2 * sum(1 - np.array(posterior)[seedindex==0])) / len(posterior)
+                sigma1 = np.sum((1 - posterior_seed) * z_seed ** 2) / np.sum(1 - posterior_seed)
+                sigmas = (sigma1 * np.sum(posterior_seed) + sigma2 * np.sum(1 - posterior_seed)) / d
                 sigma2 = sigmas; sigma1 = sigmas
-                
+
             if verbose:
-                print("Iteration: {} has {} genes set with Iupdate = 1.".format(iteri, sum(i_vec)))
-                print("Parameters: {}, {} // {}, {}".format(round(mu1,3), round(mu2,3), round(sigma1,3), round(sigma2,3)))
-                
+                print_progress("Iteration: {} has {} genes set with Iupdate = 1.".format(iteri, sum(i_vec)))
+                print_progress("Parameters: {}, {} // {}, {}".format(round(mu1,3), round(mu2,3), round(sigma1,3), round(sigma2,3)))
+
         i_vec = np.array(i_vec)[sorted(idx)]
         posterior = np.array(posterior)[sorted(idx)]
 
@@ -293,7 +302,9 @@ class supernodeWGS_func:
         b = 0
         c = 1
 
-        graph_term = np.dot(i_vec, adj)
+        # Ensure numpy array for dot product
+        adj_arr = adj.values if isinstance(adj, pd.DataFrame) else np.asarray(adj)
+        graph_term = np.dot(i_vec, adj_arr)
         for k in range(times):
             res_b = minimize_scalar(lambda b_val: -self._partial_likelihood_(b_val, c, graph_term, i_vec), bounds=b_range, method='bounded')
             b_new = res_b.x
@@ -379,7 +390,7 @@ class supernodeWGS_func:
         #plt.tight_layout()
         plt.savefig(os.path.join(self.output_dir_path, "{}.iplot.igraph_with_community.pdf".format(self.tag)), bbox_inches='tight')
         plt.close()
-        print("(1/4) {} saved!".format(os.path.join(self.output_dir_path, "{}.iplot.igraph_with_community.pdf".format(self.tag))))
+        print_progress("(1/4) {} saved!".format(os.path.join(self.output_dir_path, "{}.iplot.igraph_with_community.pdf".format(self.tag))))
 
         ## normal graph
         plt.figure(figsize=(7,7))
@@ -398,7 +409,7 @@ class supernodeWGS_func:
         cbar = self._create_cbar(cbar, new_cmap, zval)
         plt.savefig(os.path.join(self.output_dir_path, "{}.iplot.igraph.pdf".format(self.tag)), bbox_inches='tight')
         plt.close()
-        print("(2/4) {} saved!".format(os.path.join(self.output_dir_path, "{}.iplot.igraph.pdf".format(self.tag)))) 
+        print_progress("(2/4) {} saved!".format(os.path.join(self.output_dir_path, "{}.iplot.igraph.pdf".format(self.tag)))) 
 
         ## graph with cluster number
         plt.figure(figsize=(7,7))
@@ -418,10 +429,10 @@ class supernodeWGS_func:
         cbar = self._create_cbar(cbar, new_cmap, zval)
         plt.savefig(os.path.join(self.output_dir_path, "{}.iplot.igraph_with_number.pdf".format(self.tag)), bbox_inches='tight')
         plt.close()
-        print("(3/4) {} saved!".format(os.path.join(self.output_dir_path, "{}.iplot.igraph_with_number.pdf".format(self.tag))))  
+        print_progress("(3/4) {} saved!".format(os.path.join(self.output_dir_path, "{}.iplot.igraph_with_number.pdf".format(self.tag))))  
         
-        layout_mat.to_csv(os.path.join(self.output_dir_path, "{}.graph_layout.csv".format(self.tag)), index=False)      
-        print("(4/4) {} saved!".format(os.path.join(self.output_dir_path, "{}.graph_layout.csv".format(self.tag))))
+        layout_mat.to_csv(os.path.join(self.output_dir_path, "{}.graph_layout.csv".format(self.tag)), index=False)
+        print_progress("(4/4) {} saved!".format(os.path.join(self.output_dir_path, "{}.graph_layout.csv".format(self.tag))))
 
     def _term_freq(self, x):
         tmp = sum(list(map(lambda x: x.split("_"), x)), [])
@@ -622,7 +633,7 @@ class data_collection:
             try:
                 out = svd(x, full_matrices=False)
                 break
-            except:
+            except (np.linalg.LinAlgError, ValueError):
                 i += 1
         else:
             nrow, ncol = x.shape

@@ -32,7 +32,7 @@ class Categorization(Runnable):
         self._sample_ids = None
         self._categories = None
         self._result = None
-
+        self._categorizer = None
 
     @staticmethod
     def _print_args(args: argparse.Namespace):
@@ -71,10 +71,7 @@ class Categorization(Runnable):
     @property
     def result_path(self) -> Path:
         f_name = re.sub(r'annotated\.vcf\.gz|annotated\.vcf', 'categorization_result.zarr', self.input_path.name)
-        return Path(
-            f"{self.output_dir_path}/" + 
-            f"{f_name}"
-        )
+        return self.output_dir_path / f_name
 
     @property
     def annotated_vcf(self) -> pd.DataFrame:
@@ -102,8 +99,9 @@ class Categorization(Runnable):
 
     @property
     def categorizer(self) -> Categorizer:
-        categorizer = Categorizer(self.category_domain, self.gene_matrix, self.mis_info_key, self.mis_thres)
-        return categorizer
+        if self._categorizer is None:
+            self._categorizer = Categorizer(self.category_domain, self.gene_matrix, self.mis_info_key, self.mis_thres)
+        return self._categorizer
 
     @property
     def annotated_vcf_groupby_sample(self):
@@ -176,8 +174,17 @@ class Categorization(Runnable):
         self._categories = [x for x in all_categories if not x in self.redundant_categories]
         print_progress(f"{len(self._categories):,d} categories have remained.")
         print_progress("Organize the results")
-        all_values = [d.get(k, 0) for d in results_each_sample for k in self._categories]
-        self._result = np.reshape(all_values, (len(self.sample_ids), len(self._categories)))
+        # Build result matrix efficiently using numpy
+        n_samples = len(self.sample_ids)
+        n_cats = len(self._categories)
+        result = np.zeros((n_samples, n_cats), dtype=np.int32)
+        cat_to_idx = {cat: j for j, cat in enumerate(self._categories)}
+        for i, d in enumerate(results_each_sample):
+            for cat, count in d.items():
+                j = cat_to_idx.get(cat)
+                if j is not None:
+                    result[i, j] = count
+        self._result = result
 
     def categorize_vcf_for_each_sample(self):
         result = []

@@ -52,10 +52,10 @@ def check_num_proc(num_proc: int):
 def check_same_n_lines(file_paths: list, gzip_file: bool = False):
     n_lines_set = set()
     for file_path in file_paths:
-        f = gzip.open(file_path, "r") if gzip_file else open(file_path, "r")
-        for count, _ in enumerate(f):
+        count = -1
+        with gzip.open(file_path, "r") if gzip_file else open(file_path, "r") as f:
+            for count, _ in enumerate(f):
                 pass
-        f.close()
         n_lines_set.add(count)
     if len(n_lines_set) > 1:
         raise ValueError(

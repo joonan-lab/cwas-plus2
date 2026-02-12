@@ -48,11 +48,11 @@ class Preparation(Runnable):
             self.bed_key_list_path = self.workspace / self.get_env(
                 "ANNOTATION_BED_KEY"
             )
-        except TypeError:
+        except TypeError as e:
             raise RuntimeError(
                 "Failed to get one of CWAS environment variable."
                 " Maybe you omitted to run Configuration step."
-            )
+            ) from e
 
     def _prepare_annotation(self) -> Tuple[Path, Path]:
         log.print_progress(

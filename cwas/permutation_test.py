@@ -1,4 +1,6 @@
-import argparse, os, sys
+import argparse
+import os
+import sys
 from functools import partial
 from pathlib import Path
 from typing import Optional
@@ -16,6 +18,8 @@ from cwas.utils.log import print_progress, print_arg
 from cwas.utils.check import check_num_proc
 from cwas.core.burden_test.binomial import binom_two_tail
 
+_DEVNULL = open(os.devnull, 'w')
+
 class PermutationTest(BurdenTest):
     def __init__(self, args: Optional[argparse.Namespace] = None):
         super().__init__(args)
@@ -30,7 +34,6 @@ class PermutationTest(BurdenTest):
         print_arg(f"Number of permutations", args.num_perm)
         print_arg(f"Number of processes", args.num_proc)
         print_arg(f"Generate binomial p values for burden-shifted data", args.burden_shift)
-        #print_arg(f"Generate relative risks (RRs) for burden-shifted data", args.save_perm_rr)
 
     @staticmethod
     def _check_args_validity(args: argparse.Namespace):
@@ -48,39 +51,26 @@ class PermutationTest(BurdenTest):
     @property
     def result_path(self) -> Path:
         f_name = re.sub(r'categorization_result\.zarr\.gz|categorization_result\.zarr', 'permutation_test.txt.gz', self.cat_path.name)
-        self._result_path = Path(
-            f"{self.output_dir_path}/"
-            f"{f_name}"
-        )
+        self._result_path = self.output_dir_path / f_name
         return self._result_path
     
     @property
     def perm_rrs_path(self) -> Path:
         if self._perm_rrs_path is None:
             f_name = re.sub(r'categorization_result\.zarr\.gz|categorization_result\.zarr', 'permutation_RRs.txt.gz', self.cat_path.name)
-            self._perm_rrs_path = Path(
-                f"{self.output_dir_path}/"
-                f"{f_name}"
-            )
+            self._perm_rrs_path = self.output_dir_path / f_name
         return self._perm_rrs_path
     
     @property
     def binom_pvals_path(self) -> Path:
         if self._binom_pvals_path is None:
             f_name = re.sub(r'categorization_result\.zarr\.gz|categorization_result\.zarr', 'binom_pvals.txt.gz', self.cat_path.name)
-            self._binom_pvals_path = Path(
-                f"{self.output_dir_path}/"
-                f"{f_name}"
-            )
+            self._binom_pvals_path = self.output_dir_path / f_name
         return self._binom_pvals_path
     
     @property
     def burden_shift(self) -> bool:
         return self.args.burden_shift
-
-    #@property
-    #def save_perm_rr(self) -> bool:
-    #    return self.args.save_perm_rr
 
     @property
     def use_n_carrier(self) -> bool:
@@ -120,12 +110,6 @@ class PermutationTest(BurdenTest):
             perm_rrs_x10,
             rr = self._result.loc[low_P_idx]["Relative_Risk"].values
         )
-        ## Make a dataframe of permutation RRs
-        #if self.save_perm_rr:
-        #    self._perm_rrs = pd.DataFrame(perm_rrs, columns=self.categorization_result.columns)
-        #    self._perm_rrs.index += 1
-        #    self._perm_rrs.index.name = 'Trial'
-        
         ## Make a dataframe of binomial p values
         if self.burden_shift:
             self._binom_pvals = pd.DataFrame(binom_pvals, columns=self.categorization_result.columns)
@@ -152,15 +136,15 @@ class PermutationTest(BurdenTest):
             seed_range = []
             range_len = num_perm // self.args.num_proc
             if range_len == 0:
-                raise AssertionError(f'The number of processors ("{self.args.num_proc:,d}") are larger than '
-                                        f'the number of permutations ("{self.args.num_proc:,d}").')
+                raise ValueError(f'The number of processors ("{self.args.num_proc:,d}") are larger than '
+                                f'the number of permutations ("{num_perm:,d}").')
 
             for i in range(self.args.num_proc - 1):
                 r = (range_len * i, range_len * (i + 1))
                 seed_range.append(r)
             seed_range.append((range_len * (self.args.num_proc - 1), num_perm))
             def mute():
-                sys.stdout = open(os.devnull, 'w')
+                sys.stdout = _DEVNULL
 
             # Ignore RuntimeWarnings only for the multiprocessing part
             with warnings.catch_warnings():
@@ -177,33 +161,34 @@ class PermutationTest(BurdenTest):
     def _burden_test(seed_range: tuple, case_cnt: int, ctrl_cnt: int, var_counts: np.ndarray, use_n_carrier: bool, burden_shift: bool):
         array_list = []
         total_cnt = case_cnt + ctrl_cnt
+
+        # Pre-compute carrier matrix once if needed (avoid recomputation per permutation)
+        if use_n_carrier:
+            is_carrier = (var_counts > 0).astype(np.int32)
+        else:
+            is_carrier = None
+
         for seed in tqdm(range(10001 + seed_range[0], 10001 + seed_range[1]), desc="Processing", position=0, leave=True):
-            ## Make an array for random swapping
-            swap_labels = np.full(total_cnt, 'ctrl')
             ## For reproducibility
             np.random.seed(seed=seed)
-            ## Make an index for random swapping (variables in the index will be cases)
-            idx = np.random.choice(range(0,total_cnt), case_cnt, replace=False)
-            
-            for k in idx:
-                swap_labels[k] = 'case'
+            ## Use boolean array directly instead of string comparison
+            are_case = np.zeros(total_cnt, dtype=bool)
+            idx = np.random.choice(total_cnt, case_cnt, replace=False)
+            are_case[idx] = True
 
-            are_case = swap_labels == 'case'
-            
             if use_n_carrier:
-                is_carrier = np.where(var_counts > 0, 1, 0)
                 n1 = is_carrier[are_case, :].sum(axis=0)
                 n2 = is_carrier[~are_case, :].sum(axis=0)
             else:
                 n1 = var_counts[are_case, :].sum(axis=0).round()
                 n2 = var_counts[~are_case, :].sum(axis=0).round()
-                
+
             norm_n1 = n1 / case_cnt
             norm_n2 = n2 / ctrl_cnt
             perm_rr = norm_n1 / norm_n2
-            
+
             binom_p = case_cnt / total_cnt
-            
+
             ## Calculate binomial p values for burden-shifted data
             if burden_shift:
                 binom_pval = np.vectorize(binom_two_tail)(
@@ -225,9 +210,6 @@ class PermutationTest(BurdenTest):
         
     def save_result(self):
         super().save_result()
-        #if self.save_perm_rr:
-        #    print_progress(f"Save the permutation RRs to the file {self.perm_rrs_path}")
-        #    self._perm_rrs.to_csv(self.perm_rrs_path, sep='\t', compression='gzip')
         if self.burden_shift:
             print_progress(f"Save the binomial p values to the file {self.binom_pvals_path}")
             self._binom_pvals.to_csv(self.binom_pvals_path, sep='\t', compression='gzip')

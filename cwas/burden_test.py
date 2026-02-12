@@ -28,6 +28,7 @@ class BurdenTest(Runnable):
         self._ctrl_variant_cnt = None
         self._case_carrier_cnt = None
         self._ctrl_carrier_cnt = None
+        self._is_carrier = None
         self._count_thres = None
 
     @staticmethod
@@ -69,26 +70,17 @@ class BurdenTest(Runnable):
     @property
     def result_path(self) -> Path:
         f_name = re.sub(r'categorization_result\.zarr\.gz|categorization_result\.zarr', 'burden_test.txt', self.cat_path.name)
-        return Path(
-            f"{self.output_dir_path}/"
-            f"{f_name}"
-        )
+        return self.output_dir_path / f_name
 
     @property
     def counts_path(self) -> Path:
         f_name = re.sub(r'categorization_result\.zarr\.gz|categorization_result\.zarr', 'category_counts.txt', self.cat_path.name)
-        return Path(
-            f"{self.output_dir_path}/"
-            f"{f_name}"
-        )
+        return self.output_dir_path / f_name
 
     @property
     def cat_info_path(self) -> Path:
         f_name = re.sub(r'categorization_result\.zarr\.gz|categorization_result\.zarr', 'category_info.txt', self.cat_path.name)
-        return Path(
-            f"{self.output_dir_path}/"
-            f"{f_name}"
-        )
+        return self.output_dir_path / f_name
 
     @property
     def sample_info(self) -> pd.DataFrame:
@@ -131,7 +123,7 @@ class BurdenTest(Runnable):
         return self.args.plot_size
     
     @property
-    def plot_title(self) -> float:
+    def plot_title(self) -> str:
         return self.args.plot_title
 
     @property
@@ -198,11 +190,15 @@ class BurdenTest(Runnable):
         return self._ctrl_variant_cnt
 
     @property
+    def is_carrier(self) -> np.ndarray:
+        if self._is_carrier is None:
+            self._is_carrier = np.where(self.categorization_result.values > 0, 1, 0)
+        return self._is_carrier
+
+    @property
     def case_carrier_cnt(self) -> np.ndarray:
         if self._case_carrier_cnt is None:
-            var_counts = self.categorization_result.values
-            is_carrier = np.where(var_counts > 0, 1, 0)
-            self._case_carrier_cnt = is_carrier[
+            self._case_carrier_cnt = self.is_carrier[
                 self.phenotypes == "case", :
             ].sum(axis=0)
         return self._case_carrier_cnt
@@ -210,9 +206,7 @@ class BurdenTest(Runnable):
     @property
     def ctrl_carrier_cnt(self) -> np.ndarray:
         if self._ctrl_carrier_cnt is None:
-            var_counts = self.categorization_result.values
-            is_carrier = np.where(var_counts > 0, 1, 0)
-            self._ctrl_carrier_cnt = is_carrier[
+            self._ctrl_carrier_cnt = self.is_carrier[
                 self.phenotypes == "ctrl", :
             ].sum(axis=0)
         return self._ctrl_carrier_cnt

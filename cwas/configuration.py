@@ -101,80 +101,38 @@ class Configuration(Runnable):
         
 
         if self.vep is not None and shutil.which(self.vep) is None:
-            raise ValueError(f'"{self.vep} is not an executable."')
+            raise ValueError(f'"{self.vep}" is not an executable.')
+
+    def _create_symlink(self, target, link_path, is_directory=False):
+        log.print_progress(f'Create a symlink "{link_path}" -> "{target}"')
+        try:
+            link_path.symlink_to(target, target_is_directory=is_directory)
+        except FileExistsError:
+            if self.force_overwrite:
+                log.print_warn(
+                    f'"{link_path}" already exists, removing it and creating the symbolic link again.'
+                )
+                temp_link = Path(str(link_path) + ".new")
+                if is_directory:
+                    os.unlink(link_path)
+                else:
+                    os.remove(link_path)
+                os.symlink(target, temp_link)
+                os.rename(temp_link, link_path)
+            else:
+                log.print_warn(
+                    f'"{link_path}" already exists so skip '
+                    f"creating the symbolic link"
+                )
 
     def _create_data_dir_symlink(self):
-        data_dir = getattr(self, "data_dir")
-        data_dir_symlink = getattr(self, "data_dir_symlink")
-        log.print_progress(
-            f"Create a symlink to your annotation data "
-            f'directory "{data_dir_symlink}"'
-        )
-        try:
-            data_dir_symlink.symlink_to(data_dir, target_is_directory=True)
-        except FileExistsError:
-            if self.force_overwrite:
-                log.print_warn(
-                    f'"{data_dir_symlink}" already exists, removing it and creating the symbolic link again.'
-                )
-                temp_link = Path(str(data_dir_symlink) + ".new")
-                os.unlink(data_dir_symlink)
-                os.symlink(data_dir, temp_link)
-                os.rename(temp_link, data_dir_symlink)
-            else:
-                log.print_warn(
-                    f'"{data_dir_symlink}" already exists so skip '
-                    f"creating the symbolic link"
-                )
+        self._create_symlink(self.data_dir, self.data_dir_symlink, is_directory=True)
 
     def _create_gene_matrix_symlink(self):
-        gene_matrix = getattr(self, "gene_matrix")
-        gene_matrix_symlink = getattr(self, "gene_matrix_symlink")
-        log.print_progress(
-            f"Create a symlink to your gene matrix " f'"{gene_matrix_symlink}"'
-        )
+        self._create_symlink(self.gene_matrix, self.gene_matrix_symlink)
 
-        try:
-            gene_matrix_symlink.symlink_to(gene_matrix)
-        except FileExistsError:
-            if self.force_overwrite:
-                log.print_warn(
-                    f'"{gene_matrix_symlink}" already exists, removing it and creating the symbolic link again.'
-                )
-                temp_link = Path(str(gene_matrix_symlink) + ".new")
-                os.remove(gene_matrix_symlink)
-                os.symlink(gene_matrix, temp_link)
-                os.rename(temp_link, gene_matrix_symlink)
-            else:
-                log.print_warn(
-                    f'"{gene_matrix_symlink}" already exists so skip '
-                    f"creating the symbolic link"
-                )
-            
     def _create_bed_key_list_symlink(self):
-        annot_key_conf = getattr(self, "annot_key_conf")
-        bed_key_list_symlink = getattr(self, "bed_key_list_symlink")
-        log.print_progress(
-            f"Create a symlink to your annotation key list " f'"{bed_key_list_symlink}"'
-        )
-
-        try:
-            bed_key_list_symlink.symlink_to(annot_key_conf)
-        except FileExistsError:
-
-            if self.force_overwrite:
-                log.print_warn(
-                    f'"{bed_key_list_symlink}" already exists, removing it and creating the symbolic link again.'
-                )
-                temp_link = Path(str(bed_key_list_symlink) + ".new")
-                os.remove(bed_key_list_symlink)
-                os.symlink(annot_key_conf, temp_link)
-                os.rename(temp_link, bed_key_list_symlink)
-            else:
-                log.print_warn(
-                    f'"{bed_key_list_symlink}" already exists so skip '
-                    f"creating the symbolic link"
-                )
+        self._create_symlink(self.annot_key_conf, self.bed_key_list_symlink)
 
     def _create_category_info(self):
         """ Create a list of category domains and a redundant category table"""

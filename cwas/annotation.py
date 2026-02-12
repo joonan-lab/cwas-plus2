@@ -167,15 +167,15 @@ class Annotation(Runnable):
     def fetch_chromosomes(self):
         chromosomes = ['chr' + str(i) for i in range(1, 23)] + ['chrX', 'chrY']
         chr_list = []
+        vcf_reader = TabixFile(str(self.vcf_path))
         for chromosome in chromosomes:
             try:
-                vcf_reader = TabixFile(str(self.vcf_path))
                 vcf_reader.fetch(chromosome)
                 chr_list.append(chromosome)
             except StopIteration:
                 pass
-            except Exception:
-                pass
+            except ValueError:
+                print_log("LOG", f"Chromosome {chromosome} not found in VCF", True)
         return chr_list
 
     def process_vep_vcf(self):

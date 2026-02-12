@@ -14,6 +14,7 @@ from functools import partial
 
 import cwas.utils.log as log
 from cwas.core.categorization.categorizer import Categorizer
+from cwas.core.common import DomainListMixin
 from cwas.runnable import Runnable
 from cwas.utils.check import check_num_proc, check_is_file, check_is_dir
 
@@ -22,7 +23,7 @@ from cwas.core.categorization.parser import (
     parse_gene_matrix,
 )
 
-class Correlation(Runnable):
+class Correlation(DomainListMixin, Runnable):
     def __init__(self, args: argparse.Namespace):
         super().__init__(args)
         self._annotated_vcf = None
@@ -37,6 +38,7 @@ class Correlation(Runnable):
         self._adj_factor = None
         self._category_set_path = None
         self._category_set = None
+        self._categorizer = None
 
     @staticmethod
     def _print_args(args: argparse.Namespace):
@@ -90,8 +92,9 @@ class Correlation(Runnable):
 
     @property
     def categorizer(self) -> Categorizer:
-        categorizer = Categorizer(self.category_domain, self.gene_matrix, self.mis_info_key, self.mis_thres)
-        return categorizer
+        if self._categorizer is None:
+            self._categorizer = Categorizer(self.category_domain, self.gene_matrix, self.mis_info_key, self.mis_thres)
+        return self._categorizer
 
     @property
     def mis_info_key(self) -> str:
@@ -143,33 +146,6 @@ class Correlation(Runnable):
         return self._category_set
 
     @property
-    def domain_list(self) -> str:
-        if self.args.domain_list == 'all':
-            return ['all']
-        elif self.args.domain_list=='run_all':
-            all_domains = ['all'] + [col[3:] for col in self.category_set.columns if col.startswith('is_')]
-            return all_domains
-        else:
-            if 'all' in self.args.domain_list:
-                all_domains = [col[3:] for col in self.category_set.columns if col.startswith('is_')]
-                matching_values = ['all']+[self._check_domain_list(str.lower(d.strip()), all_domains) for d in self.args.domain_list.split(',')]
-                return matching_values
-            else:
-                all_domains = [col[3:] for col in self.category_set.columns if col.startswith('is_')]
-                matching_values = [self._check_domain_list(str.lower(d.strip()), all_domains) for d in self.args.domain_list.split(',')]
-                return matching_values
-
-    def _check_domain_list(self, d, all_domain_list):
-        if not d in map(str.lower, all_domain_list):
-            raise ValueError(
-                "Invalid domain name: "
-                "{}".format(d)
-            )
-        else:
-            idx = list(map(str.lower, all_domain_list)).index(d)
-            return all_domain_list[idx]
-
-    @property
     def output_dir_path(self):
         return self.args.output_dir_path.resolve()
 
@@ -184,18 +160,12 @@ class Correlation(Runnable):
     @property
     def matrix_path(self) -> Path:
         f_name = re.sub(r'categorization_result\.zarr\.gz|categorization_result\.zarr', 'correlation_matrix.zarr', self.cat_path.name)
-        return Path(
-            f"{self.output_dir_path}/" +
-            f"{f_name}"
-        )
+        return self.output_dir_path / f_name
 
     @property
     def intersection_matrix_path(self) -> Path:
         f_name = re.sub(r'categorization_result\.zarr\.gz|categorization_result\.zarr', 'intersection_matrix.zarr', self.cat_path.name)
-        return Path(
-            f"{self.output_dir_path}/" +
-            f"{f_name}"
-        )
+        return self.output_dir_path / f_name
 
     def run(self):
         for i in self.domain_list:
@@ -232,21 +202,11 @@ class Correlation(Runnable):
 
         elif self.generate_corr_matrix == "variant":
             log.print_progress("Get an intersection matrix between categories using the number of variants")
-            #pre_intersection_matrix = self.categorizer.get_intersection_variant_level(self.annotated_vcf, self.categorization_result.columns.tolist())
             intersection_matrix = (
                 self.get_intersection_matrix(self.annotated_vcf, self.categorizer, self.categorization_result.columns)
                 if self.num_proc == 1
                 else self.get_intersection_matrix_with_mp()
             )
-            #if self.num_proc == 1:
-            #    intersection_matrix = self.process_columns_single(column_range = range(pre_intersection_matrix.shape[1]), matrix=pre_intersection_matrix)
-            #else:
-            #    # Split the column range into evenly sized chunks based on the number of workers
-            #    log.print_progress(f"This step will use only {self.num_proc//3 + 1} worker processes to avoid memory error")
-            #    chunks = chunk_list(range(pre_intersection_matrix.shape[1]), (self.num_proc//3 + 1))
-            #    result = parmap.map(self.process_columns, chunks, matrix=pre_intersection_matrix, pm_pbar=True, pm_processes=(self.num_proc//3 + 1))
-            #    # Concatenate the count values
-            #    intersection_matrix = pd.concat([pd.concat(chunk_results, axis=1) for chunk_results in result], axis=1)
         
         diag_sqrt = np.sqrt(np.diag(intersection_matrix))
         log.print_progress("Calculate a correlation matrix")
@@ -274,52 +234,62 @@ class Correlation(Runnable):
 
     @staticmethod
     def process_columns_single(column_range, matrix: pd.DataFrame) -> pd.DataFrame:
-        # Initialize an empty DataFrame to store the concatenated results
-        result = pd.DataFrame()
+        results = []
 
-        # Define the progress bar
         pbar = tqdm(column_range, desc='Processing')
 
-        # Perform the multiplication in a loop
         for i in pbar:
-            # Multiply the i-th column with values in the matrix
             df_multiplied = matrix.mul(matrix.iloc[:, i], axis=0)
-            
-            # Count the number of values greater than 0 in each column
             count_values_gt_zero = (df_multiplied > 0).sum(axis=0)
-            
-            # Assign the column name to count_values_gt_zero
             count_values_gt_zero.name = matrix.columns[i]
-            
-            # Concatenate the count values to the 'result' DataFrame
-            result = pd.concat([result, count_values_gt_zero], axis=1)
+            results.append(count_values_gt_zero)
 
-        # Close the progress bar
         pbar.close()
-        
-        return result
+
+        return pd.concat(results, axis=1)
 
     def get_intersection_matrix_with_mp(self):
-        ## use only one third of the cores to avoid memory error
-        #log.print_progress(f"This step will use only {self.num_proc//3 + 1} worker processes to avoid memory error")
+        from cwas.core.categorization.categorizer import _USE_RUST
         split_vcfs = np.array_split(self.annotated_vcf, self.num_proc)
-        _get_intersection_matrix = partial(self.get_intersection_matrix,
-                                           categorizer=self.categorizer, 
-                                           categories=self.categorization_result.columns)
-        
-        with mp.Pool(self.num_proc) as pool:
-            return sum(pool.map(
-                _get_intersection_matrix,
-                split_vcfs
-            ))
-        
+
+        if _USE_RUST:
+            # Sparse path: each worker returns a scipy.sparse.csr_matrix
+            _get_sparse = partial(self._get_sparse_chunk, categorizer=self.categorizer)
+            with mp.Pool(self.num_proc) as pool:
+                sparse_chunks = pool.map(_get_sparse, split_vcfs)
+
+            # Sum sparse matrices (scipy handles this efficiently)
+            total_sparse = sparse_chunks[0]
+            for sp in sparse_chunks[1:]:
+                total_sparse = total_sparse + sp
+
+            # Convert to dense DataFrame for only the requested categories
+            categories = self.categorization_result.columns
+            all_names = self.categorizer.get_all_category_names()
+            name_to_idx = {name: i for i, name in enumerate(all_names)}
+            keep_indices = [name_to_idx[cat] for cat in categories if cat in name_to_idx]
+            keep = np.array(keep_indices)
+            sub = total_sparse[keep][:, keep]
+            matched_names = [all_names[i] for i in keep_indices]
+            dense = sub.toarray().astype(np.int32)
+            df = pd.DataFrame(dense, index=matched_names, columns=matched_names)
+            return df.reindex(index=categories, columns=categories, fill_value=0).astype(int)
+        else:
+            # Dense fallback path
+            _get_intersection_matrix = partial(self.get_intersection_matrix,
+                                               categorizer=self.categorizer,
+                                               categories=self.categorization_result.columns)
+            with mp.Pool(self.num_proc) as pool:
+                return sum(pool.map(_get_intersection_matrix, split_vcfs))
+
     @staticmethod
-    def get_intersection_matrix(annotated_vcf: pd.DataFrame, categorizer: Categorizer, categories: pd.Index): 
-        return pd.DataFrame(
-            categorizer.get_intersection(annotated_vcf), 
-            index=categories, 
-            columns=categories
-        ).fillna(0).astype(int)
+    def _get_sparse_chunk(annotated_vcf: pd.DataFrame, categorizer: Categorizer):
+        """Worker function for sparse mp path. Returns scipy.sparse.csr_matrix."""
+        return categorizer.get_intersection_as_sparse(annotated_vcf)
+
+    @staticmethod
+    def get_intersection_matrix(annotated_vcf: pd.DataFrame, categorizer: Categorizer, categories: pd.Index):
+        return categorizer.get_intersection_as_dataframe(annotated_vcf, categories)
 
     def save_result(self):
         if self.generate_inter_matrix == True:

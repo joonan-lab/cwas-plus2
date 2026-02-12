@@ -1,4 +1,7 @@
-import argparse, os, sys, pickle
+import argparse
+import os
+import pickle
+import sys
 from pathlib import Path
 import numpy as np
 import pandas as pd
@@ -7,13 +10,14 @@ from typing import Optional
 import re
 
 from cwas.utils.log import print_progress, print_arg, print_log
+from cwas.core.common import DomainListMixin
 from cwas.runnable import Runnable
 from scipy.stats import norm
 from cwas.utils.check import check_is_file, check_is_dir
 from scipy.stats import binomtest
 import zarr
 
-class EffectiveNumTest(Runnable):
+class EffectiveNumTest(DomainListMixin, Runnable):
     def __init__(self, args: argparse.Namespace):
         super().__init__(args)
         self._intersection_matrix = None
@@ -70,33 +74,6 @@ class EffectiveNumTest(Runnable):
     def category_count(self):
         category_count_ = pd.read_table(self.args.category_count_file, sep="\t")
         return category_count_
-
-    @property
-    def domain_list(self) -> str:
-        if self.args.domain_list == 'all':
-            return ['all']
-        elif self.args.domain_list=='run_all':
-            all_domains = ['all'] + [col[3:] for col in self.category_set.columns if col.startswith('is_')]
-            return all_domains
-        else:
-            if 'all' in self.args.domain_list:
-                all_domains = [col[3:] for col in self.category_set.columns if col.startswith('is_')]
-                matching_values = ['all']+[self._check_domain_list(str.lower(d.strip()), all_domains) for d in self.args.domain_list.split(',')]
-                return matching_values
-            else:
-                all_domains = [col[3:] for col in self.category_set.columns if col.startswith('is_')]
-                matching_values = [self._check_domain_list(str.lower(d.strip()), all_domains) for d in self.args.domain_list.split(',')]
-                return matching_values
-
-    def _check_domain_list(self, d, all_domain_list):
-        if not d in map(str.lower, all_domain_list):
-            raise ValueError(
-                "Invalid domain name: "
-                "{}".format(d)
-            )
-        else:
-            idx = list(map(str.lower, all_domain_list)).index(d)
-            return all_domain_list[idx]
 
     @property
     def intersection_matrix(self) -> pd.DataFrame:
@@ -179,10 +156,7 @@ class EffectiveNumTest(Runnable):
         f_name = re.sub(replace_term, '.neg_lap', self.input_path.name)
         save_name = '.zarr' if self.tag is None else f'.{self.tag}.zarr'
         f_name = re.sub('.zarr', save_name, f_name)
-        return Path(
-            f"{self.output_dir_path}/" +
-            f"{f_name}"
-        )
+        return self.output_dir_path / f_name
 
     @property
     def eig_val_path(self) -> Path:
@@ -190,10 +164,7 @@ class EffectiveNumTest(Runnable):
         f_name = re.sub(replace_term, '.eig_vals', self.input_path.name)
         save_name = '.zarr' if self.tag is None else f'.{self.tag}.zarr'
         f_name = re.sub('.zarr', save_name, f_name)
-        return Path(
-            f"{self.output_dir_path}/" +
-            f"{f_name}"
-        )
+        return self.output_dir_path / f_name
 
     @property
     def eig_vec_path(self) -> Path:
@@ -201,10 +172,7 @@ class EffectiveNumTest(Runnable):
         f_name = re.sub(replace_term, '.eig_vecs', self.input_path.name)
         save_name = '.zarr' if self.tag is None else f'.{self.tag}.zarr'
         f_name = re.sub('.zarr', save_name, f_name)
-        return Path(
-            f"{self.output_dir_path}/" +
-            f"{f_name}"
-        )
+        return self.output_dir_path / f_name
 
     def run(self):
         print_arg("Number of simulations", self.num_eig)

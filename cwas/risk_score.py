@@ -10,7 +10,7 @@ from rpy2.rinterface_lib.embedded import RRuntimeError
 from sklearn.metrics import r2_score
 
 import cwas.utils.log as log
-from cwas.core.common import cmp_two_arr
+from cwas.core.common import cmp_two_arr, DomainListMixin
 from cwas.utils.check import check_is_file, check_num_proc, check_is_dir
 from cwas.runnable import Runnable
 from typing import Optional, Tuple
@@ -24,7 +24,7 @@ from concurrent.futures import ProcessPoolExecutor
 import gc
 
 
-class RiskScore(Runnable):
+class RiskScore(DomainListMixin, Runnable):
     def __init__(self, args: argparse.Namespace):
         super().__init__(args)
         self._sample_info = None
@@ -84,7 +84,6 @@ class RiskScore(Runnable):
             "No. folds for Cross-Vadidation",
             f"{args.fold: ,d}",
         )
-        #log.print_arg("Use Logistic regression", args.logistic)
         if args.predict_only:
             log.print_arg("Skip the permutation test", args.predict_only)
         else:
@@ -149,33 +148,6 @@ class RiskScore(Runnable):
             else:
                 # Raise a ValueError if any value is not in the allowed list
                 raise ValueError(f"Invalid feature selection group. Allowed values are {', '.join(allowed_values)}.")
-
-    @property
-    def domain_list(self) -> str:
-        if self.args.domain_list == 'all':
-            return ['all']
-        elif self.args.domain_list=='run_all':
-            all_domains = ['all'] + [col[3:] for col in self.category_set.columns if col.startswith('is_')]
-            return all_domains
-        else:
-            if 'all' in self.args.domain_list:
-                all_domains = [col[3:] for col in self.category_set.columns if col.startswith('is_')]
-                matching_values = ['all']+[self._check_domain_list(str.lower(d.strip()), all_domains) for d in self.args.domain_list.split(',')]
-                return matching_values
-            else:
-                all_domains = [col[3:] for col in self.category_set.columns if col.startswith('is_')]
-                matching_values = [self._check_domain_list(str.lower(d.strip()), all_domains) for d in self.args.domain_list.split(',')]
-                return matching_values
-
-    def _check_domain_list(self, d, all_domain_list):
-        if not d in map(str.lower, all_domain_list):
-            raise ValueError(
-                "Invalid domain name: "
-                "{}".format(d)
-            )
-        else:
-            idx = list(map(str.lower, all_domain_list)).index(d)
-            return all_domain_list[idx]
 
     @property
     def tag(self) -> str:
@@ -334,37 +306,25 @@ class RiskScore(Runnable):
     def coef_path(self) -> Path:
         tag = '' if self.tag is None else ''.join([self.tag, '_'])
         f_name = re.sub(r'.categorization_result\.zarr\.gz|.categorization_result\.zarr', f'.lasso_coef_{tag}thres_{self.ctrl_thres}.txt', str(self.categorization_result_path.name))
-        return Path(
-            f"{self.out_dir}/" +
-            f"{f_name}"
-        )
+        return self.out_dir / f_name
     
     @property
     def result_path(self) -> Path:
         tag = '' if self.tag is None else ''.join([self.tag, '_'])
         f_name = re.sub(r'.categorization_result\.zarr\.gz|.categorization_result\.zarr', f'.lasso_results_{tag}thres_{self.ctrl_thres}.txt', str(self.categorization_result_path.name))
-        return Path(
-            f"{self.out_dir}/" +
-            f"{f_name}"
-        )
+        return self.out_dir / f_name
 
     @property
     def null_model_path(self) -> Path:
         tag = '' if self.tag is None else ''.join([self.tag, '_'])
         f_name = re.sub(r'.categorization_result\.zarr\.gz|.categorization_result\.zarr', f'.lasso_null_models_{tag}thres_{self.ctrl_thres}.txt', str(self.categorization_result_path.name))
-        return Path(
-            f"{self.out_dir}/" +
-            f"{f_name}"
-        )
+        return self.out_dir / f_name
         
     @property
     def plot_path(self) -> Optional[Path]:
         tag = '' if self.tag is None else ''.join([self.tag, '_'])
         f_name = re.sub(r'.categorization_result\.zarr\.gz|.categorization_result\.zarr', f'.lasso_histogram_{tag}thres_{self.ctrl_thres}.pdf', str(self.categorization_result_path.name))
-        return Path(
-            f"{self.out_dir}/" +
-            f"{f_name}"
-        )
+        return self.out_dir / f_name
 
     def run(self):
         self.prepare()
@@ -418,7 +378,6 @@ class RiskScore(Runnable):
         """Generate risk scores for various seeds """
         log.print_progress(self.risk_scores.__doc__)
 
-        #domain_values = [domain.strip() for domain in self.domain_list.split(',')]
         seeds = np.arange(self.seed, self.seed + self.num_reg * 10, 10)
         num_proc2 = len(seeds) if self.num_proc > len(seeds) else self.num_proc
         pool = ProcessPoolExecutor(max_workers=num_proc2)
@@ -457,7 +416,6 @@ class RiskScore(Runnable):
                                             response = None,
                                             test_response = None,
                                             filtered_combs = filtered_combs)
-        #map_result = parmap.map(_risk_score_per_category_, seeds, pm_pbar=True, pm_processes=self.num_proc)
         map_result = list(tqdm(pool.map(_risk_score_per_category_, seeds), total=len(seeds), desc="Permutation p-values"))
         self._permutation_dict[domain] = {key: value for x in map_result for key, value in x.items()}
         gc.collect()
@@ -598,13 +556,13 @@ class RiskScore(Runnable):
         except RRuntimeError as e:
             # Check if the error code is 7777 and log a message
             if 'error code 7777' in str(e):
-                print("Skipping due to glmnet error (code 7777): All used predictors have zero variance")
+                log.print_warn("Skipping due to glmnet error (code 7777): All used predictors have zero variance")
                 rare_idx = filtered_combs.isin(rare_categories)
                 opt_coeff = np.zeros(len(rare_idx))
                 output_dict[seed] = [np.nan, np.nan, np.nan, opt_coeff]
             else:
                 # Re-raise the exception if it's a different error
-                raise e
+                raise
 
         if not (swap_label or self.do_each_one or self.leave_one_out):
             log.print_progress(f"Done (Seed: {seed})")
@@ -630,28 +588,24 @@ class RiskScore(Runnable):
         """Save the results to a file """
         log.print_progress(self.save_results.__doc__)
 
-        #domain_list = list(self._result_dict.keys())
         null_models = []
 
         filtered_combs = self.filtered_category_set.loc[self.filtered_category_set['is_'+domain]==1]['Category'] if domain != 'all' else self.filtered_category_set['Category']
     
         result_table = []
-    
-        #choose_idx = np.all([self._result_dict[domain][seed][3] != 0 
-        #                    for seed in self._result_dict[domain].keys()], axis=0)
+
         seed_arrays = [self._result_dict[domain][seed][3] for seed in self._result_dict[domain].keys()]
         stacked_arrays = np.stack(seed_arrays, axis=0)
         non_zero_proportion = np.mean(stacked_arrays != 0, axis=0)
         choose_idx = non_zero_proportion > 0.5
 
-        ## Get the categories which are selected by the LassoCV for all seeds
         coef_df = pd.DataFrame.from_dict(
             {seed: self._result_dict[domain][seed][3][choose_idx]
             for seed in self._result_dict[domain].keys()},
             orient="index",
             columns = filtered_combs[choose_idx]
         )
-    
+
         coef_df.to_csv(str(self.coef_path).replace('.txt', f'.{domain}.txt'), sep="\t")
     
         for seed in self._result_dict[domain].keys():
@@ -735,8 +689,6 @@ class RiskScore(Runnable):
 
             result_table = []
 
-            #choose_idx = np.all([self._result_dict[domain][seed][3] != 0 
-            #                    for seed in self._result_dict[domain].keys()], axis=0)
             seed_arrays = [self._result_dict[domain][seed][3] for seed in self._result_dict[domain].keys()]
             stacked_arrays = np.stack(seed_arrays, axis=0)
             non_zero_proportion = np.mean(stacked_arrays != 0, axis=0)
@@ -760,7 +712,6 @@ class RiskScore(Runnable):
             result_df = pd.DataFrame(result_table, columns=["Domain", "Seed", "Parameter", "R2", "N_select"])
             new_df = pd.DataFrame([domain, 'average', result_df['Parameter'].mean(), result_df['R2'].mean(), sum(choose_idx)]).T
             new_df.columns = ["Domain", "Seed", "Parameter", "R2", "N_select"]
-            #result_df = pd.concat([new_df, result_df], ignore_index=True)
 
             if not self.predict_only:
                 r2_scores = np.array([self._permutation_dict[domain][seed][1]
@@ -769,7 +720,6 @@ class RiskScore(Runnable):
 
             fin_res = pd.concat([fin_res, new_df], ignore_index=True)
 
-        #fin_res.to_csv(self.result_path, sep="\t", index=False)
         self._result_for_loop[key][annotation] = fin_res
 
     def save_results_for_loop(self):

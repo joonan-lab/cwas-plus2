@@ -83,72 +83,47 @@ class BinomialTest(BurdenTest):
 
         if self.tag != None:
             tags = self.tag.strip().split(",")
-            
             for t in tags:
-                fig, axes = plt.subplots(figsize=(self.plot_size, self.plot_size))
-
-                plt.title(self.plot_title, fontsize=self.font_size, loc='left', pad=5)
-                axes.vlines(x=0, ymin=-0.5, ymax=max(burden_res['-log_P'])+0.5, linestyles='-', color='lightgray', linewidth=1.25, zorder=1)
-                axes.scatter(x=burden_res['log2_RR'].apply(lambda x: replace_inf(x, max_x)), y=burden_res['-log_P'],
-                            marker='o', color='silver', s=self.marker_size, label='Others', edgecolor='black', linewidth=0.5, zorder=2)
-                axes.scatter(x=burden_res.loc[(burden_res.index.str.contains(t))&(burden_res['-log_P']>threshold), 'log2_RR'], 
-                             y=burden_res.loc[(burden_res.index.str.contains(t))&(burden_res['-log_P']>threshold), '-log_P'],
-                             marker='o', label=t, facecolor='#3d62a1', s=self.marker_size, alpha=.7, edgecolor='black', linewidth=0.5, zorder=3)
-                axes.hlines(y=threshold, xmin=-(max_x+1), xmax=max_x+1, linestyles='--', linewidth=1.25, color='black')
-                axes.text(-(max_x+1)+0.1, threshold+0.1, 'P=0.05', size=self.font_size*0.85, color='black')
-                if self.eff_test:
-                    axes.hlines(y=eff_threshold, xmin=-(max_x+1), xmax=max_x+1, linestyles='--', linewidth=1.25, color='red')
-                    axes.text(-(max_x+1)+0.1, eff_threshold+0.1, ''.join(['P=', str('%.2E' % Decimal(0.05/self.eff_test)),', eff_num=', format(self.eff_test, ',')]), size=self.font_size*0.85, color='red')
-                plt.ylim(-0.5, max(burden_res['-log_P'])+0.5)
-                plt.xlim(-(max_x+1), (max_x+1))
-                plt.xlabel('Relative Risk ($log_{2}$)', size=self.font_size)
-                plt.ylabel("P ($-log_{10}$)", size=self.font_size)
-                axes.set_xticks(xticks)
-                axes.set_xticklabels(xlabels, fontsize=self.font_size)
-                axes.set_yticks(yticks)
-                axes.set_yticklabels(ylabels, fontsize=self.font_size)
-                axes.legend(markerscale=self.font_size*0.15, fontsize=self.font_size*0.85)
-                axes.spines['bottom'].set_linewidth(1.25)
-                axes.spines['left'].set_linewidth(1.25)
-                axes.tick_params(width=1.25)
-                axes.spines['top'].set_visible(False)
-                axes.spines['right'].set_visible(False)
-                
-                output = self.result_path.name.replace(".txt", f'.{t}.volcano_plot.pdf')
-                output_path = os.path.join(self.output_dir_path, output)
-                
-                plt.tight_layout()
-                plt.savefig(output_path, bbox_inches='tight')
-                print_progress("Save the result to the volcano plot file {}".format(output_path))
+                self._draw_single_volcano_plot(burden_res, max_x, threshold, eff_threshold, xticks, xlabels, yticks, ylabels, replace_inf, tag_name=t)
         else:
-            fig, axes = plt.subplots(figsize=(self.plot_size, self.plot_size))
+            self._draw_single_volcano_plot(burden_res, max_x, threshold, eff_threshold, xticks, xlabels, yticks, ylabels, replace_inf)
 
-            plt.title(self.plot_title, fontsize=self.font_size, loc='left', pad=5)
-            axes.vlines(x=0, ymin=-0.5, ymax=max(burden_res['-log_P'])+0.5, linestyles='-', color='lightgray', linewidth=1.25, zorder=1)
-            axes.scatter(x=burden_res['log2_RR'].apply(lambda x: replace_inf(x, max_x)), y=burden_res['-log_P'],
-                        marker='o', color='silver', s=self.marker_size, edgecolor='black', linewidth=0.5, zorder=2)
-            axes.hlines(y=threshold, xmin=-(max_x+1), xmax=max_x+1, linestyles='--', linewidth=1.25, color='black')
-            axes.text(-(max_x+1)+0.1, threshold+0.1, 'P=0.05', size=self.font_size*0.85, color='black')
-            if self.eff_test:
-                axes.hlines(y=eff_threshold, xmin=-(max_x+1), xmax=max_x+1, linestyles='--', linewidth=1.25, color='red')
-                axes.text(-(max_x+1)+0.1, eff_threshold+0.1, ''.join(['P=', str('%.2E' % Decimal(0.05/self.eff_test)),', eff_num=', format(self.eff_test, ',')]), size=self.font_size*0.85, color='red')
-            plt.ylim(-0.5, max(burden_res['-log_P'])+0.5)
-            plt.xlim(-(max_x+1), (max_x+1))
-            plt.xlabel('Relative Risk ($log_{2}$)', size=self.font_size)
-            plt.ylabel("P ($-log_{10}$)", size=self.font_size)
-            axes.set_xticks(xticks)
-            axes.set_xticklabels(xlabels, fontsize=self.font_size)
-            axes.set_yticks(yticks)
-            axes.set_yticklabels(ylabels, fontsize=self.font_size)
-            axes.spines['bottom'].set_linewidth(1.25)
-            axes.spines['left'].set_linewidth(1.25)
-            axes.tick_params(width=1.25)
-            axes.spines['top'].set_visible(False)
-            axes.spines['right'].set_visible(False)
+    def _draw_single_volcano_plot(self, burden_res, max_x, threshold, eff_threshold, xticks, xlabels, yticks, ylabels, replace_inf, tag_name=None):
+        fig, axes = plt.subplots(figsize=(self.plot_size, self.plot_size))
 
-            output = self.result_path.name.replace(".txt", f'.volcano_plot.pdf')
-            output_path = os.path.join(self.output_dir_path, output)
+        plt.title(self.plot_title, fontsize=self.font_size, loc='left', pad=5)
+        axes.vlines(x=0, ymin=-0.5, ymax=max(burden_res['-log_P'])+0.5, linestyles='-', color='lightgray', linewidth=1.25, zorder=1)
+        axes.scatter(x=burden_res['log2_RR'].apply(lambda x: replace_inf(x, max_x)), y=burden_res['-log_P'],
+                    marker='o', color='silver', s=self.marker_size, label='Others' if tag_name else None, edgecolor='black', linewidth=0.5, zorder=2)
+        if tag_name is not None:
+            axes.scatter(x=burden_res.loc[(burden_res.index.str.contains(tag_name))&(burden_res['-log_P']>threshold), 'log2_RR'],
+                         y=burden_res.loc[(burden_res.index.str.contains(tag_name))&(burden_res['-log_P']>threshold), '-log_P'],
+                         marker='o', label=tag_name, facecolor='#3d62a1', s=self.marker_size, alpha=.7, edgecolor='black', linewidth=0.5, zorder=3)
+        axes.hlines(y=threshold, xmin=-(max_x+1), xmax=max_x+1, linestyles='--', linewidth=1.25, color='black')
+        axes.text(-(max_x+1)+0.1, threshold+0.1, 'P=0.05', size=self.font_size*0.85, color='black')
+        if self.eff_test:
+            axes.hlines(y=eff_threshold, xmin=-(max_x+1), xmax=max_x+1, linestyles='--', linewidth=1.25, color='red')
+            axes.text(-(max_x+1)+0.1, eff_threshold+0.1, ''.join(['P=', str('%.2E' % Decimal(0.05/self.eff_test)),', eff_num=', format(self.eff_test, ',')]), size=self.font_size*0.85, color='red')
+        plt.ylim(-0.5, max(burden_res['-log_P'])+0.5)
+        plt.xlim(-(max_x+1), (max_x+1))
+        plt.xlabel('Relative Risk ($log_{2}$)', size=self.font_size)
+        plt.ylabel("P ($-log_{10}$)", size=self.font_size)
+        axes.set_xticks(xticks)
+        axes.set_xticklabels(xlabels, fontsize=self.font_size)
+        axes.set_yticks(yticks)
+        axes.set_yticklabels(ylabels, fontsize=self.font_size)
+        if tag_name is not None:
+            axes.legend(markerscale=self.font_size*0.15, fontsize=self.font_size*0.85)
+        axes.spines['bottom'].set_linewidth(1.25)
+        axes.spines['left'].set_linewidth(1.25)
+        axes.tick_params(width=1.25)
+        axes.spines['top'].set_visible(False)
+        axes.spines['right'].set_visible(False)
 
-            plt.tight_layout()
-            plt.savefig(output_path, bbox_inches='tight')
-            print_progress("Save the result to the volcano plot file {}".format(output_path))
+        suffix = f'.{tag_name}.volcano_plot.pdf' if tag_name else '.volcano_plot.pdf'
+        output = self.result_path.name.replace(".txt", suffix)
+        output_path = self.output_dir_path / output
+
+        plt.tight_layout()
+        plt.savefig(output_path, bbox_inches='tight')
+        print_progress("Save the result to the volcano plot file {}".format(output_path))

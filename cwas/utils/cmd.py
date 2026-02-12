@@ -1,6 +1,7 @@
 """
 Utils to execute system command line.
 """
+import shlex
 import shutil
 import subprocess
 from pathlib import Path
@@ -48,11 +49,16 @@ class CmdExecutor:
 
     def execute_raising_err(self) -> int:
         if self._shell == True:
-            log.print_log("CMD", " ".join(self.cmd), True)
-            output = subprocess.run(" ".join(self.cmd), check=True, shell = True)            
+            safe_bin = shlex.quote(self._bin_path)
+            if self._multi_input is None:
+                cmd_str = " ".join([safe_bin, *self._args])
+            else:
+                cmd_str = " ".join([self._multi_input, safe_bin, *self._args])
+            log.print_log("CMD", cmd_str, True)
+            output = subprocess.run(cmd_str, check=True, shell=True)
         else:
             log.print_log("CMD", " ".join(self.cmd), True)
-            output = subprocess.run(self.cmd, check=True, shell = False)
+            output = subprocess.run(self.cmd, check=True, shell=False)
         return output.returncode
 
 def compress_using_bgzip(

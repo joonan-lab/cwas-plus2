@@ -22,6 +22,15 @@ import pandas as pd
 from tqdm import tqdm
 from cwas.core.categorization.utils import extract_sublist_by_int, get_idx_dict
 
+try:
+    from cwas_core import categorize_variants as _rust_categorize
+    from cwas_core import compute_intersection_matrix as _rust_intersection
+    from cwas_core import compute_intersection_matrix_sparse as _rust_intersection_sparse
+    from cwas_core import build_category_names as _rust_build_names
+    _USE_RUST = True
+except ImportError:
+    _USE_RUST = False
+
 
 class Categorizer:
     def __init__(self, category_domain: dict, gene_matrix: dict, mis_info_key: str, mis_thres: float) -> None:
@@ -31,6 +40,35 @@ class Categorizer:
         self._mis_thres = mis_thres
 
     def categorize_variant(self, annotated_vcf: pd.DataFrame):
+        if _USE_RUST:
+            return self._categorize_variant_rust(annotated_vcf)
+        return self._categorize_variant_python(annotated_vcf)
+
+    def _categorize_variant_rust(self, annotated_vcf: pd.DataFrame):
+        """Rust-accelerated categorization using bitmask integer operations."""
+        annotations, group_sizes, group_terms = self._prepare_annotations(annotated_vcf)
+        n_variants = len(annotated_vcf)
+
+        # All variants belong to sample_id=0 (single sample call)
+        sample_ids = np.zeros(n_variants, dtype=np.uintp)
+        n_samples = 1
+
+        # Call Rust: returns (n_samples, n_categories) array
+        count_matrix = _rust_categorize(annotations, group_sizes, sample_ids, n_samples)
+        counts = count_matrix[0]  # single sample
+
+        # Build category names and create result dict
+        category_names = _rust_build_names(group_terms)
+
+        result = defaultdict(int)
+        for idx, count in enumerate(counts):
+            if count > 0:
+                result[category_names[idx]] = int(count)
+
+        return result
+
+    def _categorize_variant_python(self, annotated_vcf: pd.DataFrame):
+        """Original Python categorization (fallback)."""
         result = defaultdict(int)
 
         for annotation_term_lists in self.annotate_each_variant(annotated_vcf):
@@ -39,7 +77,230 @@ class Categorizer:
 
         return result
 
+    def _prepare_annotations(self, annotated_vcf: pd.DataFrame):
+        """Prepare annotation bitmask arrays for Rust functions.
+
+        Returns:
+            annotations: np.ndarray of shape (n_variants, 5) with dtype u64
+            group_sizes: np.ndarray of shape (5,) with dtype uintp
+            group_terms: list of 5 lists of term strings
+        """
+        variant_type_ints = self.annotate_variant_type(annotated_vcf)
+        gene_set_ints = self.annotate_gene_set(annotated_vcf)
+        gencode_ints = self.annotate_gencode(annotated_vcf)
+        functional_ints = annotated_vcf['ANNOT'].values
+
+        n_variants = len(annotated_vcf)
+
+        # Build the combined functional_score + functional_annotation term list
+        cat_list = [*self._category_domain['functional_score'],
+                    *self._category_domain['functional_annotation']]
+        cat_list = [item for item in cat_list if item not in ['Any', 'All']]
+
+        # For parse_annotation_int_, functional_score terms get prepended with "All"
+        # and functional_annotation terms get prepended with "Any"
+        fs_terms = ['All'] + [t for t in cat_list if t in self._category_domain['functional_score']]
+        fa_terms = ['Any'] + [t for t in cat_list if t in self._category_domain['functional_annotation']]
+
+        # For Rust, we need bitmask integers per group.
+        # Groups: variant_type, gene_set, functional_score, gencode, functional_annotation
+        # The parse_annotation_int_ splits the ANNOT bitmask into fs and fa terms.
+        # We need to compute separate bitmasks for functional_score and functional_annotation.
+
+        # Pre-compute fs and fa bitmasks from the ANNOT integer
+        fs_domain_set = set(self._category_domain['functional_score'])
+        fa_domain_set = set(self._category_domain['functional_annotation'])
+
+        fs_bitmasks = np.zeros(n_variants, dtype=np.uint64)
+        fa_bitmasks = np.zeros(n_variants, dtype=np.uint64)
+
+        for v_idx in range(n_variants):
+            annot_int = int(functional_ints[v_idx])
+            labels = extract_sublist_by_int(cat_list, annot_int)
+
+            # functional_score bitmask: bit 0 = "All", then matching terms
+            fs_mask = 1  # "All" is always set (bit 0)
+            for label in labels:
+                if label in fs_domain_set:
+                    pos = fs_terms.index(label)
+                    fs_mask |= (1 << pos)
+            fs_bitmasks[v_idx] = fs_mask
+
+            # functional_annotation bitmask: bit 0 = "Any", then matching terms
+            fa_mask = 1  # "Any" is always set (bit 0)
+            for label in labels:
+                if label in fa_domain_set:
+                    pos = fa_terms.index(label)
+                    fa_mask |= (1 << pos)
+            fa_bitmasks[v_idx] = fa_mask
+
+        # Stack into (n_variants, 5) array
+        annotations = np.column_stack([
+            variant_type_ints.astype(np.uint64),
+            gene_set_ints.astype(np.uint64),
+            fs_bitmasks,
+            gencode_ints.astype(np.uint64),
+            fa_bitmasks,
+        ])
+
+        group_sizes = np.array([
+            len(self._category_domain['variant_type']),
+            len(self._category_domain['gene_set']),
+            len(fs_terms),
+            len(self._category_domain['gencode']),
+            len(fa_terms),
+        ], dtype=np.uintp)
+
+        group_terms = [
+            self._category_domain['variant_type'],
+            self._category_domain['gene_set'],
+            fs_terms,
+            self._category_domain['gencode'],
+            fa_terms,
+        ]
+
+        return annotations, group_sizes, group_terms
+
     def get_intersection(self, annotated_vcf: pd.DataFrame):
+        if _USE_RUST:
+            return self._get_intersection_rust(annotated_vcf)
+        return self._get_intersection_python(annotated_vcf)
+
+    def get_intersection_as_dataframe(self, annotated_vcf: pd.DataFrame, categories: pd.Index) -> pd.DataFrame:
+        """Return intersection matrix directly as a DataFrame aligned to categories.
+
+        When Rust is available, uses sparse path for memory efficiency.
+        """
+        if _USE_RUST:
+            return self._get_intersection_sparse_df(annotated_vcf, categories)
+        # Python fallback: go through dict path
+        raw = self._get_intersection_python(annotated_vcf)
+        return pd.DataFrame(raw, index=categories, columns=categories).fillna(0).astype(int)
+
+    def _get_intersection_rust(self, annotated_vcf: pd.DataFrame):
+        """Rust-accelerated intersection matrix (returns dict for backward compat)."""
+        annotations, group_sizes, group_terms = self._prepare_annotations(annotated_vcf)
+
+        matrix = _rust_intersection(annotations, group_sizes)
+        category_names = _rust_build_names(group_terms)
+
+        # Convert to nested defaultdict format matching Python output
+        result = defaultdict(lambda: defaultdict(int))
+        n = len(category_names)
+        for i in range(n):
+            row = matrix[i]
+            for j in range(n):
+                val = int(row[j])
+                if val > 0:
+                    result[category_names[i]][category_names[j]] = val
+
+        return result
+
+    def _get_intersection_rust_df(self, annotated_vcf: pd.DataFrame, categories: pd.Index) -> pd.DataFrame:
+        """Rust-accelerated intersection matrix → DataFrame directly.
+
+        Skips the dict intermediate entirely:
+          Rust numpy matrix (all categories) → select rows/cols → DataFrame
+        """
+        annotations, group_sizes, group_terms = self._prepare_annotations(annotated_vcf)
+
+        # Rust returns full (n_all_cats × n_all_cats) numpy matrix
+        full_matrix = _rust_intersection(annotations, group_sizes)
+        all_names = _rust_build_names(group_terms)
+
+        # Build index mapping: which positions in all_names match the requested categories
+        name_to_idx = {name: i for i, name in enumerate(all_names)}
+        keep_indices = [name_to_idx[cat] for cat in categories if cat in name_to_idx]
+
+        if len(keep_indices) == len(all_names):
+            # No filtering needed — all categories match
+            return pd.DataFrame(
+                full_matrix.astype(np.int32),
+                index=all_names,
+                columns=all_names,
+            ).reindex(index=categories, columns=categories, fill_value=0)
+
+        # Slice the matrix to only the requested categories
+        keep = np.array(keep_indices)
+        sub_matrix = full_matrix[np.ix_(keep, keep)].astype(np.int32)
+        matched_names = [all_names[i] for i in keep_indices]
+
+        df = pd.DataFrame(sub_matrix, index=matched_names, columns=matched_names)
+        return df.reindex(index=categories, columns=categories, fill_value=0).astype(int)
+
+    def get_all_category_names(self):
+        """Build the full list of category names using Rust (or Python fallback).
+
+        Returns:
+            list of str: all category names in canonical index order
+        """
+        if _USE_RUST:
+            group_terms = self._build_group_terms()
+            return _rust_build_names(group_terms)
+        # Python fallback: generate via product
+        group_terms = self._build_group_terms()
+        return ['_'.join(combo) for combo in product(*group_terms)]
+
+    def _build_group_terms(self):
+        """Build the 5 group term lists (same logic as _prepare_annotations)."""
+        cat_list = [*self._category_domain['functional_score'],
+                    *self._category_domain['functional_annotation']]
+        cat_list = [item for item in cat_list if item not in ['Any', 'All']]
+        fs_terms = ['All'] + [t for t in cat_list if t in self._category_domain['functional_score']]
+        fa_terms = ['Any'] + [t for t in cat_list if t in self._category_domain['functional_annotation']]
+        return [
+            self._category_domain['variant_type'],
+            self._category_domain['gene_set'],
+            fs_terms,
+            self._category_domain['gencode'],
+            fa_terms,
+        ]
+
+    def get_intersection_as_sparse(self, annotated_vcf: pd.DataFrame):
+        """Compute intersection matrix as scipy.sparse.csr_matrix via Rust sparse COO.
+
+        Returns:
+            scipy.sparse.csr_matrix of shape (n_categories, n_categories)
+        """
+        from scipy import sparse
+
+        annotations, group_sizes, _ = self._prepare_annotations(annotated_vcf)
+        coo_dict = _rust_intersection_sparse(annotations, group_sizes)
+
+        row = coo_dict['row']
+        col = coo_dict['col']
+        data = coo_dict['data']
+        shape = coo_dict['shape']
+
+        # Build upper-triangle COO matrix
+        upper = sparse.coo_matrix((data, (row, col)), shape=shape)
+        # Restore symmetry: full = upper + upper.T - diag
+        upper_csr = upper.tocsr()
+        diag = sparse.diags(upper_csr.diagonal())
+        full = upper_csr + upper_csr.T - diag
+
+        return full.tocsr()
+
+    def _get_intersection_sparse_df(self, annotated_vcf: pd.DataFrame, categories: pd.Index) -> pd.DataFrame:
+        """Sparse intersection → subset DataFrame for requested categories."""
+        full_sparse = self.get_intersection_as_sparse(annotated_vcf)
+        all_names = self.get_all_category_names()
+
+        name_to_idx = {name: i for i, name in enumerate(all_names)}
+        keep_indices = [name_to_idx[cat] for cat in categories if cat in name_to_idx]
+
+        if not keep_indices:
+            return pd.DataFrame(0, index=categories, columns=categories, dtype=np.int32)
+
+        keep = np.array(keep_indices)
+        sub = full_sparse[keep][:, keep]
+        matched_names = [all_names[i] for i in keep_indices]
+
+        df = pd.DataFrame(sub.toarray().astype(np.int32), index=matched_names, columns=matched_names)
+        return df.reindex(index=categories, columns=categories, fill_value=0).astype(int)
+
+    def _get_intersection_python(self, annotated_vcf: pd.DataFrame):
+        """Original Python intersection matrix (fallback)."""
         result = defaultdict(lambda: defaultdict(int))
 
         for annotation_term_lists in tqdm(self.annotate_each_variant(annotated_vcf), total=len(annotated_vcf)):
@@ -55,13 +316,13 @@ class Categorizer:
       #for annotation_term_lists in annotate_each_variant(annotated_vcf):
       #    for combination in product(*annotation_term_lists):
       #        category_combinations.add("_".join(combination))
-      
+
       # Create a matrix with zeros
       num_variants = annotated_vcf.shape[0]
       num_categories = len(category_combinations)
       #matrix = np.zeros((num_variants, num_categories), dtype=int)
       matrix = np.zeros((num_variants, num_categories), dtype='uint64')
-      
+
       # Create a dictionary to map categories to matrix column indices
       category_to_index = {category: index for index, category in enumerate(category_combinations)}
 
@@ -394,4 +655,3 @@ class Categorizer:
             return ['All'] + [item for item in labels if item in self._category_domain['functional_score']]
         elif annotation_term_type == 'functional_annotation':
             return ['Any'] + [item for item in labels if item in self._category_domain['functional_annotation']]
-        

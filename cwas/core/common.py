@@ -117,6 +117,35 @@ def swap_label(labels: np.ndarray, group_ids: np.ndarray) -> np.ndarray:
     return swap_labels
 
 
+class DomainListMixin:
+    @property
+    def domain_list(self) -> str:
+        if self.args.domain_list == 'all':
+            return ['all']
+        elif self.args.domain_list == 'run_all':
+            all_domains = ['all'] + [col[3:] for col in self.category_set.columns if col.startswith('is_')]
+            return all_domains
+        else:
+            if 'all' in self.args.domain_list:
+                all_domains = [col[3:] for col in self.category_set.columns if col.startswith('is_')]
+                matching_values = ['all'] + [self._check_domain_list(str.lower(d.strip()), all_domains) for d in self.args.domain_list.split(',')]
+                return matching_values
+            else:
+                all_domains = [col[3:] for col in self.category_set.columns if col.startswith('is_')]
+                matching_values = [self._check_domain_list(str.lower(d.strip()), all_domains) for d in self.args.domain_list.split(',')]
+                return matching_values
+
+    def _check_domain_list(self, d, all_domain_list):
+        if not d in map(str.lower, all_domain_list):
+            raise ValueError(
+                "Invalid domain name: "
+                "{}".format(d)
+            )
+        else:
+            idx = list(map(str.lower, all_domain_list)).index(d)
+            return all_domain_list[idx]
+
+
 def int_to_bit_arr(n0: float, bit_arr_len: int) -> np.ndarray:
     n = int(n0)
     if n < 0 or bit_arr_len < 0:
