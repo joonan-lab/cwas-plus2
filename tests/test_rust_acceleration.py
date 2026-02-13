@@ -98,12 +98,13 @@ class TestRustCategorizer:
         reason="cwas_core not installed"
     )
     def test_categorize_single_variant(self):
-        """Single variant with known bitmasks should produce correct counts."""
+        """Single variant with known index lists should produce correct counts."""
         from cwas_core import categorize_variants, build_category_names
 
-        # One variant with bit 0 set in all groups → only category [0][0][0][0][0]
-        annotations = np.array([[1, 1, 1, 1, 1]], dtype=np.uint64)
-        group_sizes = np.array([3, 2, 2, 2, 2], dtype=np.uintp)
+        # One variant with index 0 set in all groups → only category [0][0][0][0][0]
+        # 5 groups, 1 variant each; each variant has only index 0 active
+        annotations = [[[0]], [[0]], [[0]], [[0]], [[0]]]
+        group_sizes = [3, 2, 2, 2, 2]
         sample_ids = np.array([0], dtype=np.uintp)
 
         result = categorize_variants(annotations, group_sizes, sample_ids, 1)
@@ -122,18 +123,18 @@ class TestRustCategorizer:
         reason="cwas_core not installed"
     )
     def test_categorize_multi_bit(self):
-        """Variant with multiple bits set should generate product combinations."""
+        """Variant with multiple indices should generate product combinations."""
         from cwas_core import categorize_variants
 
-        # bits 0,1 set in group 0 → 2 terms; bit 0 in others → 1 term each
+        # indices 0,1 in group 0 → 2 terms; index 0 in others → 1 term each
         # Total combos: 2*1*1*1*1 = 2
-        annotations = np.array([[0b11, 1, 1, 1, 1]], dtype=np.uint64)
-        group_sizes = np.array([3, 2, 2, 2, 2], dtype=np.uintp)
+        annotations = [[[0, 1]], [[0]], [[0]], [[0]], [[0]]]
+        group_sizes = [3, 2, 2, 2, 2]
         sample_ids = np.array([0], dtype=np.uintp)
 
         result = categorize_variants(annotations, group_sizes, sample_ids, 1)
         assert np.sum(result) == 2
-        print("  Multi-bit categorization correct")
+        print("  Multi-index categorization correct")
 
     @pytest.mark.skipif(
         not _can_import_rust(),
@@ -143,12 +144,15 @@ class TestRustCategorizer:
         """Multiple samples should accumulate independently."""
         from cwas_core import categorize_variants
 
-        annotations = np.array([
-            [1, 1, 1, 1, 1],  # sample 0
-            [1, 1, 1, 1, 1],  # sample 1
-            [1, 1, 1, 1, 1],  # sample 0 again
-        ], dtype=np.uint64)
-        group_sizes = np.array([3, 2, 2, 2, 2], dtype=np.uintp)
+        # 3 variants, each with index 0 in all groups
+        annotations = [
+            [[0], [0], [0]],  # group 0: 3 variants
+            [[0], [0], [0]],  # group 1
+            [[0], [0], [0]],  # group 2
+            [[0], [0], [0]],  # group 3
+            [[0], [0], [0]],  # group 4
+        ]
+        group_sizes = [3, 2, 2, 2, 2]
         sample_ids = np.array([0, 1, 0], dtype=np.uintp)
 
         result = categorize_variants(annotations, group_sizes, sample_ids, 2)
@@ -171,11 +175,16 @@ class TestRustIntersection:
         """Intersection matrix should be symmetric."""
         from cwas_core import compute_intersection_matrix
 
-        annotations = np.array([
-            [0b11, 0b01, 0b01, 0b01, 0b01],
-            [0b10, 0b10, 0b10, 0b10, 0b10],
-        ], dtype=np.uint64)
-        group_sizes = np.array([3, 2, 2, 2, 2], dtype=np.uintp)
+        # Variant 0: group0=[0,1], groups1-4=[0]
+        # Variant 1: group0=[1],   groups1-4=[1]
+        annotations = [
+            [[0, 1], [1]],    # group 0
+            [[0], [1]],       # group 1
+            [[0], [1]],       # group 2
+            [[0], [1]],       # group 3
+            [[0], [1]],       # group 4
+        ]
+        group_sizes = [3, 2, 2, 2, 2]
 
         matrix = compute_intersection_matrix(annotations, group_sizes)
         assert np.allclose(matrix, matrix.T), "Matrix not symmetric"
@@ -189,12 +198,17 @@ class TestRustIntersection:
         """Diagonal should equal category counts (self-intersection)."""
         from cwas_core import categorize_variants, compute_intersection_matrix
 
-        annotations = np.array([
-            [0b101, 0b01, 0b01, 0b01, 0b01],
-            [0b010, 0b10, 0b10, 0b10, 0b10],
-            [0b111, 0b11, 0b11, 0b11, 0b11],
-        ], dtype=np.uint64)
-        group_sizes = np.array([3, 2, 2, 2, 2], dtype=np.uintp)
+        # Variant 0: group0=[0,2], groups1-4=[0]
+        # Variant 1: group0=[1],   groups1-4=[1]
+        # Variant 2: group0=[0,1,2], groups1-4=[0,1]
+        annotations = [
+            [[0, 2], [1], [0, 1, 2]],   # group 0
+            [[0], [1], [0, 1]],          # group 1
+            [[0], [1], [0, 1]],          # group 2
+            [[0], [1], [0, 1]],          # group 3
+            [[0], [1], [0, 1]],          # group 4
+        ]
+        group_sizes = [3, 2, 2, 2, 2]
         sample_ids = np.array([0, 0, 0], dtype=np.uintp)
 
         counts = categorize_variants(annotations, group_sizes, sample_ids, 1)[0]
@@ -221,12 +235,14 @@ class TestRustIntersectionSparse:
         from cwas_core import compute_intersection_matrix, compute_intersection_matrix_sparse
         from scipy import sparse
 
-        annotations = np.array([
-            [0b11, 0b01, 0b01, 0b01, 0b01],
-            [0b10, 0b10, 0b10, 0b10, 0b10],
-            [0b111, 0b11, 0b11, 0b11, 0b11],
-        ], dtype=np.uint64)
-        group_sizes = np.array([3, 2, 2, 2, 2], dtype=np.uintp)
+        annotations = [
+            [[0, 1], [1], [0, 1, 2]],   # group 0
+            [[0], [1], [0, 1]],          # group 1
+            [[0], [1], [0, 1]],          # group 2
+            [[0], [1], [0, 1]],          # group 3
+            [[0], [1], [0, 1]],          # group 4
+        ]
+        group_sizes = [3, 2, 2, 2, 2]
 
         # Dense reference
         dense = compute_intersection_matrix(annotations, group_sizes)
@@ -257,12 +273,14 @@ class TestRustIntersectionSparse:
         from cwas_core import compute_intersection_matrix_sparse
         from scipy import sparse
 
-        annotations = np.array([
-            [0b101, 0b01, 0b01, 0b01, 0b01],
-            [0b010, 0b10, 0b10, 0b10, 0b10],
-            [0b111, 0b11, 0b11, 0b11, 0b11],
-        ], dtype=np.uint64)
-        group_sizes = np.array([3, 2, 2, 2, 2], dtype=np.uintp)
+        annotations = [
+            [[0, 2], [1], [0, 1, 2]],   # group 0
+            [[0], [1], [0, 1]],          # group 1
+            [[0], [1], [0, 1]],          # group 2
+            [[0], [1], [0, 1]],          # group 3
+            [[0], [1], [0, 1]],          # group 4
+        ]
+        group_sizes = [3, 2, 2, 2, 2]
 
         coo_dict = compute_intersection_matrix_sparse(annotations, group_sizes)
         row = coo_dict['row']
@@ -286,8 +304,9 @@ class TestRustIntersectionSparse:
         """Empty input should produce an empty sparse result."""
         from cwas_core import compute_intersection_matrix_sparse
 
-        annotations = np.zeros((0, 5), dtype=np.uint64)
-        group_sizes = np.array([3, 2, 2, 2, 2], dtype=np.uintp)
+        # 5 groups, each with 0 variants
+        annotations = [[], [], [], [], []]
+        group_sizes = [3, 2, 2, 2, 2]
 
         coo_dict = compute_intersection_matrix_sparse(annotations, group_sizes)
         assert len(coo_dict['row']) == 0
@@ -308,12 +327,14 @@ class TestRustIntersectionSparse:
         )
         from scipy import sparse
 
-        annotations = np.array([
-            [0b101, 0b01, 0b01, 0b01, 0b01],
-            [0b010, 0b10, 0b10, 0b10, 0b10],
-            [0b111, 0b11, 0b11, 0b11, 0b11],
-        ], dtype=np.uint64)
-        group_sizes = np.array([3, 2, 2, 2, 2], dtype=np.uintp)
+        annotations = [
+            [[0, 2], [1], [0, 1, 2]],   # group 0
+            [[0], [1], [0, 1]],          # group 1
+            [[0], [1], [0, 1]],          # group 2
+            [[0], [1], [0, 1]],          # group 3
+            [[0], [1], [0, 1]],          # group 4
+        ]
+        group_sizes = [3, 2, 2, 2, 2]
         sample_ids = np.array([0, 0, 0], dtype=np.uintp)
 
         counts = categorize_variants(annotations, group_sizes, sample_ids, 1)[0]
@@ -386,14 +407,24 @@ class TestPerformance:
         reason="cwas_core not installed"
     )
     def test_categorizer_performance(self):
-        """Compare Rust vs Python categorization speed."""
+        """Compare Rust categorization speed with index list format."""
         from cwas_core import categorize_variants
 
         # Generate synthetic data: 10k variants, small group sizes
         n_variants = 10000
         np.random.seed(42)
-        annotations = np.random.randint(1, 8, size=(n_variants, 5)).astype(np.uint64)
-        group_sizes = np.array([3, 3, 3, 3, 3], dtype=np.uintp)
+        group_sizes = [3, 3, 3, 3, 3]
+
+        # Build random index lists: each variant gets 1-3 random indices per group
+        annotations = []
+        for g in range(5):
+            group_annots = []
+            for v in range(n_variants):
+                n_active = np.random.randint(1, min(4, group_sizes[g] + 1))
+                indices = sorted(np.random.choice(group_sizes[g], n_active, replace=False).tolist())
+                group_annots.append(indices)
+            annotations.append(group_annots)
+
         sample_ids = np.zeros(n_variants, dtype=np.uintp)
 
         # Rust timing
@@ -435,5 +466,3 @@ class TestPerformance:
         print(f"\n  String approach: {str_time*1000:.1f}ms ({n_iters} iters)")
         print(f"  Boolean approach: {bool_time*1000:.1f}ms ({n_iters} iters)")
         print(f"  Speedup: {speedup:.1f}x")
-
-

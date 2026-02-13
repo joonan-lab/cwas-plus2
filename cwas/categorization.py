@@ -164,6 +164,10 @@ class Categorization(Runnable):
         print_progress("Done")
 
     def categorize_vcf(self):
+        from cwas.core.categorization.categorizer import _USE_RUST
+        if _USE_RUST:
+            self.categorize_vcf_bulk_rust()
+            return
         results_each_sample = (
             self.categorize_vcf_for_each_sample()
             if self.num_proc == 1
@@ -185,6 +189,118 @@ class Categorization(Runnable):
                 if j is not None:
                     result[i, j] = count
         self._result = result
+
+    def categorize_vcf_bulk_rust(self):
+        """Bulk Rust-accelerated categorization: prepare once, batch Rust calls."""
+        import os
+
+        # Set RAYON_NUM_THREADS before any Rust call (thread pool is lazily
+        # initialized and immutable once created)
+        os.environ['RAYON_NUM_THREADS'] = str(self.num_proc)
+
+        from cwas_core import categorize_variants as _rust_categorize
+        from cwas_core import build_category_names as _rust_build_names
+
+        # Step 1: Prepare annotations once on the full VCF
+        print_progress("Prepare annotations for the full VCF")
+        annotations, group_sizes, group_terms = self.categorizer._prepare_annotations(
+            self.annotated_vcf
+        )
+        n_variants_total = len(self.annotated_vcf)
+
+        # Step 2: Build category names once
+        print_progress("Build category names")
+        category_names = _rust_build_names(group_terms)
+        n_categories = len(category_names)
+        print_progress(f"Total categories: {n_categories:,d}")
+
+        # Step 3: Pre-compute non-redundant category mask
+        print_progress("Compute non-redundant category mask")
+        redundant = self.redundant_categories
+        non_redundant_mask = np.array(
+            [name not in redundant for name in category_names], dtype=bool
+        )
+        non_redundant_indices = np.where(non_redundant_mask)[0]
+        non_redundant_names = [category_names[i] for i in non_redundant_indices]
+        print_progress(f"Non-redundant categories: {len(non_redundant_names):,d}")
+
+        # Step 4: Map variants to global sample indices
+        sample_ids_list = self.sample_ids
+        n_samples = len(sample_ids_list)
+        sample_to_idx = {sid: i for i, sid in enumerate(sample_ids_list)}
+        sample_col = self.annotated_vcf['SAMPLE'].values
+        global_sample_indices = np.array(
+            [sample_to_idx[s] for s in sample_col], dtype=np.intp
+        )
+
+        # Step 5: Compute batch size (target ~512 MB per Rayon thread)
+        memory_budget_per_thread = 512 * 1024 * 1024  # 512 MB
+        batch_size = max(1, memory_budget_per_thread // (n_categories * 4))
+        n_batches = (n_samples + batch_size - 1) // batch_size
+        print_progress(
+            f"Batch size: {batch_size:,d} samples, {n_batches} batches "
+            f"(num_proc={self.num_proc})"
+        )
+
+        # Pre-allocate result matrix (only non-redundant categories)
+        n_non_redundant = len(non_redundant_indices)
+        result = np.zeros((n_samples, n_non_redundant), dtype=np.int32)
+
+        # Step 6: Process in batches
+        for batch_idx in range(n_batches):
+            batch_start = batch_idx * batch_size
+            batch_end = min(batch_start + batch_size, n_samples)
+            batch_n = batch_end - batch_start
+
+            print_progress(
+                f"Categorizing batch {batch_idx + 1}/{n_batches} "
+                f"(samples {batch_start + 1:,d}-{batch_end:,d})"
+            )
+
+            # Find variants belonging to this batch's samples
+            variant_mask = (
+                (global_sample_indices >= batch_start)
+                & (global_sample_indices < batch_end)
+            )
+            variant_indices = np.where(variant_mask)[0]
+
+            if len(variant_indices) == 0:
+                continue
+
+            # Remap sample IDs to batch-local (0..batch_n-1)
+            batch_sample_ids_signed = (
+                global_sample_indices[variant_indices] - batch_start
+            )
+            assert np.all(batch_sample_ids_signed >= 0), (
+                f"Negative batch-local sample index in batch {batch_idx}"
+            )
+            batch_sample_ids = batch_sample_ids_signed.astype(np.uintp)
+
+            # Slice annotations for this batch's variants
+            batch_annotations = [
+                [annotations[g][v] for v in variant_indices]
+                for g in range(5)
+            ]
+
+            # Call Rust once for the entire batch
+            count_matrix = _rust_categorize(
+                batch_annotations, group_sizes, batch_sample_ids, batch_n
+            )
+
+            # Copy non-redundant columns to result
+            result[batch_start:batch_end, :] = count_matrix[:, non_redundant_indices]
+
+        # Step 7: Filter out all-zero categories
+        print_progress("Filter out all-zero categories")
+        nonzero_mask = np.any(result != 0, axis=0)
+        self._categories = [
+            non_redundant_names[i]
+            for i in range(n_non_redundant)
+            if nonzero_mask[i]
+        ]
+        self._result = result[:, nonzero_mask]
+
+        print_progress(f"{len(self._categories):,d} categories have remained.")
 
     def categorize_vcf_for_each_sample(self):
         result = []

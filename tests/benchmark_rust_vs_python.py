@@ -228,7 +228,6 @@ def benchmark_categorizer_scaled():
     from cwas_core import categorize_variants, build_category_names
     from itertools import product as itertools_product
     from collections import defaultdict
-    from cwas.core.categorization.utils import extract_sublist_by_int
 
     # Simulate: 5 groups with realistic sizes
     # variant_type: 3, gene_set: 20, functional_score: 5, gencode: 15, functional_annotation: 10
@@ -237,18 +236,16 @@ def benchmark_categorizer_scaled():
     n_variants = 5000
 
     np.random.seed(42)
-    # Random bitmasks with ~2-3 bits set each
-    annotations = np.zeros((n_variants, 5), dtype=np.uint64)
+    # Build random index lists: each variant gets 1-3 random indices per group
+    annotations = []
     for g in range(5):
+        group_annots = []
         for v in range(n_variants):
-            n_bits = np.random.randint(1, min(4, group_sizes_small[g] + 1))
-            bits = np.random.choice(group_sizes_small[g], n_bits, replace=False)
-            mask = 0
-            for b in bits:
-                mask |= (1 << b)
-            annotations[v, g] = mask
+            n_active = np.random.randint(1, min(4, group_sizes_small[g] + 1))
+            indices = sorted(np.random.choice(group_sizes_small[g], n_active, replace=False).tolist())
+            group_annots.append(indices)
+        annotations.append(group_annots)
 
-    group_sizes_np = np.array(group_sizes_small, dtype=np.uintp)
     sample_ids = np.zeros(n_variants, dtype=np.uintp)
 
     # Build term lists
@@ -259,22 +256,21 @@ def benchmark_categorizer_scaled():
     N = 10
 
     # Rust
-    categorize_variants(annotations, group_sizes_np, sample_ids, 1)  # warmup
+    categorize_variants(annotations, group_sizes_small, sample_ids, 1)  # warmup
     start = time.perf_counter()
     for _ in range(N):
-        result_rs = categorize_variants(annotations, group_sizes_np, sample_ids, 1)
+        result_rs = categorize_variants(annotations, group_sizes_small, sample_ids, 1)
     rs_time = (time.perf_counter() - start) / N
 
     # Python equivalent
     def python_categorize():
         result = defaultdict(int)
         for v in range(n_variants):
-            bit_lists = []
+            term_lists = []
             for g in range(5):
-                mask = int(annotations[v, g])
-                terms = extract_sublist_by_int(group_terms[g], mask)
-                bit_lists.append(terms)
-            for combo in itertools_product(*bit_lists):
+                terms = [group_terms[g][i] for i in annotations[g][v]]
+                term_lists.append(terms)
+            for combo in itertools_product(*term_lists):
                 result["_".join(combo)] += 1
         return result
 
@@ -285,7 +281,7 @@ def benchmark_categorizer_scaled():
     py_time = (time.perf_counter() - start) / N
 
     n_cats = int(np.prod(group_sizes_small))
-    avg_combos = np.mean([np.prod([bin(int(annotations[v, g])).count('1') for g in range(5)]) for v in range(min(100, n_variants))])
+    avg_combos = np.mean([np.prod([len(annotations[g][v]) for g in range(5)]) for v in range(min(100, n_variants))])
     speedup = py_time / rs_time
 
     print(f"[5] Scaled Categorizer ({n_variants} variants, {n_cats} possible categories)")
