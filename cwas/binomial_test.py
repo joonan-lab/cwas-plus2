@@ -59,6 +59,7 @@ class BinomialTest(BurdenTest):
         burden_res = burden_res[burden_res.index.isin(selected_categories)]
         
         threshold = -np.log10(0.05)
+        eff_threshold = None
         if self.eff_test:
             eff_threshold = -np.log10(0.05/self.eff_test)
         max_rr = max(burden_res.loc[burden_res.log2_RR!=np.inf, 'log2_RR'])

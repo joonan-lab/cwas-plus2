@@ -20,7 +20,7 @@ from itertools import product
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from cwas.core.categorization.utils import extract_sublist_by_int, get_idx_dict
+from cwas.core.categorization.utils import extract_sublist_by_int, get_idx_dict, bitmask_to_indices
 
 try:
     from cwas_core import categorize_variants as _rust_categorize
@@ -78,11 +78,12 @@ class Categorizer:
         return result
 
     def _prepare_annotations(self, annotated_vcf: pd.DataFrame):
-        """Prepare annotation bitmask arrays for Rust functions.
+        """Prepare annotation index lists for Rust functions.
 
         Returns:
-            annotations: np.ndarray of shape (n_variants, 5) with dtype u64
-            group_sizes: np.ndarray of shape (5,) with dtype uintp
+            annotations: list of 5 lists, each containing per-variant index lists
+                         annotations[group][variant] = list of active term indices
+            group_sizes: list of 5 ints, the number of terms in each group
             group_terms: list of 5 lists of term strings
         """
         variant_type_ints = self.annotate_variant_type(annotated_vcf)
@@ -92,64 +93,58 @@ class Categorizer:
 
         n_variants = len(annotated_vcf)
 
+        # Convert bitmask integers to index lists for the first three groups
+        vt_indices = [bitmask_to_indices(int(variant_type_ints[v])) for v in range(n_variants)]
+        gs_indices = [bitmask_to_indices(int(gene_set_ints[v])) for v in range(n_variants)]
+        gc_indices = [bitmask_to_indices(int(gencode_ints[v])) for v in range(n_variants)]
+
         # Build the combined functional_score + functional_annotation term list
         cat_list = [*self._category_domain['functional_score'],
                     *self._category_domain['functional_annotation']]
         cat_list = [item for item in cat_list if item not in ['Any', 'All']]
 
-        # For parse_annotation_int_, functional_score terms get prepended with "All"
-        # and functional_annotation terms get prepended with "Any"
         fs_terms = ['All'] + [t for t in cat_list if t in self._category_domain['functional_score']]
         fa_terms = ['Any'] + [t for t in cat_list if t in self._category_domain['functional_annotation']]
 
-        # For Rust, we need bitmask integers per group.
-        # Groups: variant_type, gene_set, functional_score, gencode, functional_annotation
-        # The parse_annotation_int_ splits the ANNOT bitmask into fs and fa terms.
-        # We need to compute separate bitmasks for functional_score and functional_annotation.
-
-        # Pre-compute fs and fa bitmasks from the ANNOT integer
+        # Pre-compute lookup sets
         fs_domain_set = set(self._category_domain['functional_score'])
         fa_domain_set = set(self._category_domain['functional_annotation'])
 
-        fs_bitmasks = np.zeros(n_variants, dtype=np.uint64)
-        fa_bitmasks = np.zeros(n_variants, dtype=np.uint64)
+        # Build index lists for functional_score and functional_annotation
+        fs_indices = []
+        fa_indices = []
 
         for v_idx in range(n_variants):
             annot_int = int(functional_ints[v_idx])
             labels = extract_sublist_by_int(cat_list, annot_int)
 
-            # functional_score bitmask: bit 0 = "All", then matching terms
-            fs_mask = 1  # "All" is always set (bit 0)
+            # functional_score indices: index 0 = "All" always present
+            fs_idx = [0]
             for label in labels:
                 if label in fs_domain_set:
                     pos = fs_terms.index(label)
-                    fs_mask |= (1 << pos)
-            fs_bitmasks[v_idx] = fs_mask
+                    if pos not in fs_idx:
+                        fs_idx.append(pos)
+            fs_indices.append(fs_idx)
 
-            # functional_annotation bitmask: bit 0 = "Any", then matching terms
-            fa_mask = 1  # "Any" is always set (bit 0)
+            # functional_annotation indices: index 0 = "Any" always present
+            fa_idx = [0]
             for label in labels:
                 if label in fa_domain_set:
                     pos = fa_terms.index(label)
-                    fa_mask |= (1 << pos)
-            fa_bitmasks[v_idx] = fa_mask
+                    if pos not in fa_idx:
+                        fa_idx.append(pos)
+            fa_indices.append(fa_idx)
 
-        # Stack into (n_variants, 5) array
-        annotations = np.column_stack([
-            variant_type_ints.astype(np.uint64),
-            gene_set_ints.astype(np.uint64),
-            fs_bitmasks,
-            gencode_ints.astype(np.uint64),
-            fa_bitmasks,
-        ])
+        annotations = [vt_indices, gs_indices, fs_indices, gc_indices, fa_indices]
 
-        group_sizes = np.array([
+        group_sizes = [
             len(self._category_domain['variant_type']),
             len(self._category_domain['gene_set']),
             len(fs_terms),
             len(self._category_domain['gencode']),
             len(fa_terms),
-        ], dtype=np.uintp)
+        ]
 
         group_terms = [
             self._category_domain['variant_type'],
@@ -408,7 +403,7 @@ class Categorizer:
         functional_score_annotation_idx = get_idx_dict(
             self._category_domain["functional_score"]
         )
-        annotation_ints = np.zeros(len(annotated_vcf.index), dtype=int)
+        annotation_ints = np.zeros(len(annotated_vcf.index), dtype=object)
 
         for score in functional_score_annotation_idx:
             if score == "All":
@@ -610,7 +605,7 @@ class Categorizer:
     def annotate_region(self, annotated_vcf: pd.DataFrame) -> list:
         region_annotation_idx = get_idx_dict(self._category_domain["functional_annotation"])
         #annotation_floats = np.zeros(len(annotated_vcf.index), dtype=float)
-        annotation_ints = np.zeros(len(annotated_vcf.index), dtype=int)
+        annotation_ints = np.zeros(len(annotated_vcf.index), dtype=object)
 
         for region in region_annotation_idx:
             if region == "Any":

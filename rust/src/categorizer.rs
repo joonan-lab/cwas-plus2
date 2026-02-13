@@ -1,27 +1,17 @@
 use numpy::ndarray::Array2;
-use numpy::{IntoPyArray, PyArray2, PyReadonlyArray1, PyReadonlyArray2};
+use numpy::{IntoPyArray, PyArray2, PyReadonlyArray1};
 use pyo3::prelude::*;
 use rayon::prelude::*;
 
-/// Extract set bit positions from a bitmask.
-#[inline]
-fn set_bits(mut mask: u64) -> Vec<usize> {
-    let mut bits = Vec::with_capacity(mask.count_ones() as usize);
-    while mask != 0 {
-        bits.push(mask.trailing_zeros() as usize);
-        mask &= mask - 1; // clear lowest set bit
-    }
-    bits
-}
-
-/// Categorize variants using bitmask-based integer operations.
+/// Categorize variants using index-list-based annotation groups.
 ///
-/// For each variant, takes 5 annotation bitmasks and generates all category
+/// For each variant, takes 5 annotation index lists and generates all category
 /// combinations as flat indices. Counts are accumulated per sample.
 ///
 /// Arguments:
-///   annotations: 2D array of shape (n_variants, 5) with u64 bitmasks
-///   group_sizes: array of 5 values, the number of terms in each annotation group
+///   annotations: list of 5 groups, each a list of n_variants index lists
+///                annotations[g][v] = Vec<usize> of active term indices for group g, variant v
+///   group_sizes: list of 5 values, the number of terms in each annotation group
 ///   sample_ids: array of length n_variants, the sample index for each variant
 ///   n_samples: total number of distinct samples
 ///
@@ -30,15 +20,13 @@ fn set_bits(mut mask: u64) -> Vec<usize> {
 #[pyfunction]
 pub fn categorize_variants<'py>(
     py: Python<'py>,
-    annotations: PyReadonlyArray2<'py, u64>,
-    group_sizes: PyReadonlyArray1<'py, usize>,
+    annotations: Vec<Vec<Vec<usize>>>,
+    group_sizes: Vec<usize>,
     sample_ids: PyReadonlyArray1<'py, usize>,
     n_samples: usize,
 ) -> PyResult<Bound<'py, PyArray2<i32>>> {
-    let annotations = annotations.as_array();
-    let group_sizes = group_sizes.as_slice()?;
     let sample_ids = sample_ids.as_slice()?;
-    let n_variants = annotations.shape()[0];
+    let n_variants = sample_ids.len();
 
     // Compute strides for flat category index
     // category_idx = b0 * stride[0] + b1 * stride[1] + ... + b4 * stride[4]
@@ -49,17 +37,17 @@ pub fn categorize_variants<'py>(
     }
     let n_categories = strides[0] * group_sizes[0];
 
-    // Collect per-variant data into a Vec for parallel processing
-    let variant_data: Vec<([u64; 5], usize)> = (0..n_variants)
+    // Build per-variant tuples: (indices for each group, sample_id)
+    let variant_data: Vec<([&[usize]; 5], usize)> = (0..n_variants)
         .map(|v| {
-            let annot = [
-                annotations[[v, 0]],
-                annotations[[v, 1]],
-                annotations[[v, 2]],
-                annotations[[v, 3]],
-                annotations[[v, 4]],
+            let idx = [
+                annotations[0][v].as_slice(),
+                annotations[1][v].as_slice(),
+                annotations[2][v].as_slice(),
+                annotations[3][v].as_slice(),
+                annotations[4][v].as_slice(),
             ];
-            (annot, sample_ids[v])
+            (idx, sample_ids[v])
         })
         .collect();
 
@@ -70,27 +58,18 @@ pub fn categorize_variants<'py>(
         .map(|chunk| {
             let mut local_counts = vec![0i32; n_samples * n_categories];
 
-            for &(annot, sample_id) in chunk {
-                // Extract set bits for each group
-                let bits: [Vec<usize>; 5] = [
-                    set_bits(annot[0]),
-                    set_bits(annot[1]),
-                    set_bits(annot[2]),
-                    set_bits(annot[3]),
-                    set_bits(annot[4]),
-                ];
-
+            for &(ref bits, sample_id) in chunk {
                 // Generate all combinations via nested iteration (product of 5 groups)
                 let base_offset = sample_id * n_categories;
-                for &b0 in &bits[0] {
+                for &b0 in bits[0] {
                     let idx0 = b0 * strides[0];
-                    for &b1 in &bits[1] {
+                    for &b1 in bits[1] {
                         let idx1 = idx0 + b1 * strides[1];
-                        for &b2 in &bits[2] {
+                        for &b2 in bits[2] {
                             let idx2 = idx1 + b2 * strides[2];
-                            for &b3 in &bits[3] {
+                            for &b3 in bits[3] {
                                 let idx3 = idx2 + b3 * strides[3];
-                                for &b4 in &bits[4] {
+                                for &b4 in bits[4] {
                                     let cat_idx = idx3 + b4;
                                     local_counts[base_offset + cat_idx] += 1;
                                 }

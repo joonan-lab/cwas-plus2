@@ -14,3 +14,15 @@ def extract_sublist_by_int(list_: list, n: int) -> list:
         i += 1
 
     return result
+
+
+def bitmask_to_indices(n: int) -> list:
+    """Convert a bitmask integer to a list of set bit positions."""
+    indices = []
+    i = 0
+    while n > 0:
+        if n & 1:
+            indices.append(i)
+        n >>= 1
+        i += 1
+    return indices
