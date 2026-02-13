@@ -13,7 +13,7 @@ import numpy as np
 from functools import partial
 
 import cwas.utils.log as log
-from cwas.core.categorization.categorizer import Categorizer
+from cwas.core.categorization.categorizer import Categorizer, _build_xtx_chunk
 from cwas.core.common import DomainListMixin
 from cwas.runnable import Runnable
 from cwas.utils.check import check_num_proc, check_is_file, check_is_dir
@@ -168,50 +168,89 @@ class Correlation(DomainListMixin, Runnable):
         return self.output_dir_path / f_name
 
     def run(self):
+        # For variant mode with multiple domains, compute full sparse intersection once
+        if (self.generate_corr_matrix == "variant"
+                and len(self.domain_list) > 1
+                and self.num_proc > 1):
+            log.print_progress("Pre-computing full sparse intersection matrix for multi-domain run")
+            # Temporarily set domain to 'all' to get full intersection
+            self._domain = 'all'
+            self.filtered_combs = pd.Series(self.categories)
+            self._full_sparse_intersection = self.get_intersection_matrix_with_mp()
+        else:
+            self._full_sparse_intersection = None
+
         for i in self.domain_list:
             self._domain = i
             log.print_progress(f"Generate correlation matrix for domain: {i}")
             self.generate_correlation_matrix()
             self.save_result()
+        self._full_sparse_intersection = None
         log.print_progress("Done")
 
     def generate_correlation_matrix(self):
+        from scipy import sparse
+
         self.filtered_combs = self.category_set.loc[self.category_set['is_'+self._domain]==1]['Category'] if self._domain != 'all' else pd.Series(self.categories)
-        if self._domain != 'all':
-            column_indices = [self.categories.index(col) for col in self.filtered_combs]
-            self.categorization_result = pd.DataFrame(self.categorization_root['data'][:, column_indices].astype(np.float64),
-                                                      index=self.sample_ids,
-                                                      columns=self.filtered_combs)
-            self.categorization_result.index.name = 'SAMPLE'
-        else:
-            self.categorization_result = pd.DataFrame(self.categorization_root['data'].astype(np.float64),
-                                                      index=self.sample_ids,
-                                                      columns=self.categories)
-            self.categorization_result.index.name = 'SAMPLE'
+
         if self.generate_corr_matrix == "sample":
+            # Sample mode: load zarr categorization result as before
+            if self._domain != 'all':
+                column_indices = [self.categories.index(col) for col in self.filtered_combs]
+                self.categorization_result = pd.DataFrame(self.categorization_root['data'][:, column_indices].astype(np.float64),
+                                                          index=self.sample_ids,
+                                                          columns=self.filtered_combs)
+                self.categorization_result.index.name = 'SAMPLE'
+            else:
+                self.categorization_result = pd.DataFrame(self.categorization_root['data'].astype(np.float64),
+                                                          index=self.sample_ids,
+                                                          columns=self.categories)
+                self.categorization_result.index.name = 'SAMPLE'
+
             log.print_progress("Get an intersection matrix between categories using the number of samples")
 
             if self.num_proc == 1:
                 intersection_matrix = self.process_columns_single(column_range = range(self.categorization_result.shape[1]), matrix=self.categorization_result)
             else:
-                # Split the column range into evenly sized chunks based on the number of workers
                 chunks = chunk_list(range(self.categorization_result.shape[1]), self.num_proc)
                 result = parmap.map(self.process_columns, chunks, matrix=self.categorization_result, pm_pbar=True, pm_processes=self.num_proc)
-                # Concatenate the count values
                 intersection_matrix = pd.concat([pd.concat(chunk_results, axis=1) for chunk_results in result], axis=1)
 
+            diag_sqrt = np.sqrt(np.diag(intersection_matrix))
+            log.print_progress("Calculate a correlation matrix")
+            self._intersection_matrix = intersection_matrix
+            self._correlation_matrix = intersection_matrix / np.outer(diag_sqrt, diag_sqrt)
+
         elif self.generate_corr_matrix == "variant":
+            # Variant mode: use sparse X.T @ X (no zarr loading needed)
             log.print_progress("Get an intersection matrix between categories using the number of variants")
-            intersection_matrix = (
-                self.get_intersection_matrix(self.annotated_vcf, self.categorizer, self.categorization_result.columns)
-                if self.num_proc == 1
-                else self.get_intersection_matrix_with_mp()
-            )
-        
-        diag_sqrt = np.sqrt(np.diag(intersection_matrix))
-        log.print_progress("Calculate a correlation matrix")
-        self._intersection_matrix = intersection_matrix
-        self._correlation_matrix = intersection_matrix/np.outer(diag_sqrt, diag_sqrt)
+
+            if hasattr(self, '_full_sparse_intersection') and self._full_sparse_intersection is not None:
+                # Multi-domain: extract subset from cached full sparse intersection
+                intersection_sparse = self._extract_domain_from_sparse(self._full_sparse_intersection)
+            else:
+                intersection_sparse = (
+                    self.get_intersection_matrix(self.annotated_vcf, self.categorizer, self.filtered_combs)
+                    if self.num_proc == 1
+                    else self.get_intersection_matrix_with_mp()
+                )
+
+            log.print_progress("Calculate a correlation matrix")
+
+            if sparse.issparse(intersection_sparse):
+                # Sparse correlation: D @ intersection @ D where D = diag(1/sqrt(diag))
+                diag_vals = np.array(intersection_sparse.diagonal(), dtype=np.float64)
+                diag_vals[diag_vals == 0] = 1.0  # avoid division by zero
+                inv_sqrt = 1.0 / np.sqrt(diag_vals)
+                D = sparse.diags(inv_sqrt)
+                self._intersection_matrix = intersection_sparse
+                self._correlation_matrix = (D @ intersection_sparse @ D).tocsr()
+            else:
+                # Dense DataFrame path (single-process fallback)
+                diag_sqrt = np.sqrt(np.diag(intersection_sparse))
+                diag_sqrt[diag_sqrt == 0] = 1.0
+                self._intersection_matrix = intersection_sparse
+                self._correlation_matrix = intersection_sparse / np.outer(diag_sqrt, diag_sqrt)
 
     @staticmethod
     def process_columns(column_range, matrix: pd.DataFrame) -> list:
@@ -249,38 +288,47 @@ class Correlation(DomainListMixin, Runnable):
         return pd.concat(results, axis=1)
 
     def get_intersection_matrix_with_mp(self):
-        from cwas.core.categorization.categorizer import _USE_RUST
+        """Compute intersection matrix via sparse X.T @ X with multiprocessing."""
+        from scipy import sparse
+
         split_vcfs = np.array_split(self.annotated_vcf, self.num_proc)
+        categorizer = self.categorizer
 
-        if _USE_RUST:
-            # Sparse path: each worker returns a scipy.sparse.csr_matrix
-            _get_sparse = partial(self._get_sparse_chunk, categorizer=self.categorizer)
-            with mp.Pool(self.num_proc) as pool:
-                sparse_chunks = pool.map(_get_sparse, split_vcfs)
+        # Each worker builds X_i for its chunk and returns X_i.T @ X_i
+        args_list = [(chunk, categorizer) for chunk in split_vcfs]
+        with mp.Pool(self.num_proc) as pool:
+            sparse_chunks = pool.map(_build_xtx_chunk, args_list)
 
-            # Sum sparse matrices (scipy handles this efficiently)
-            total_sparse = sparse_chunks[0]
-            for sp in sparse_chunks[1:]:
-                total_sparse = total_sparse + sp
+        log.print_progress("Summing sparse chunk results")
+        total_sparse = sparse_chunks[0]
+        for sp in sparse_chunks[1:]:
+            total_sparse = total_sparse + sp
 
-            # Convert to dense DataFrame for only the requested categories
-            categories = self.categorization_result.columns
-            all_names = self.categorizer.get_all_category_names()
-            name_to_idx = {name: i for i, name in enumerate(all_names)}
-            keep_indices = [name_to_idx[cat] for cat in categories if cat in name_to_idx]
-            keep = np.array(keep_indices)
-            sub = total_sparse[keep][:, keep]
-            matched_names = [all_names[i] for i in keep_indices]
-            dense = sub.toarray().astype(np.int32)
-            df = pd.DataFrame(dense, index=matched_names, columns=matched_names)
-            return df.reindex(index=categories, columns=categories, fill_value=0).astype(int)
-        else:
-            # Dense fallback path
-            _get_intersection_matrix = partial(self.get_intersection_matrix,
-                                               categorizer=self.categorizer,
-                                               categories=self.categorization_result.columns)
-            with mp.Pool(self.num_proc) as pool:
-                return sum(pool.map(_get_intersection_matrix, split_vcfs))
+        # Subset from full product space to filtered_combs categories
+        categories = self.filtered_combs
+        all_names = categorizer.get_all_category_names()
+        name_to_idx = {name: i for i, name in enumerate(all_names)}
+        keep_indices = [name_to_idx[cat] for cat in categories if cat in name_to_idx]
+
+        if len(keep_indices) == total_sparse.shape[0]:
+            # No subsetting needed — all categories match
+            return total_sparse
+
+        keep = np.array(keep_indices)
+        sub = total_sparse[keep][:, keep].tocsr()
+        return sub
+
+    def _extract_domain_from_sparse(self, full_sparse):
+        """Extract a domain subset from the full sparse intersection matrix."""
+        all_names = self.categorizer.get_all_category_names()
+        name_to_idx = {name: i for i, name in enumerate(all_names)}
+        keep_indices = [name_to_idx[cat] for cat in self.filtered_combs if cat in name_to_idx]
+
+        if len(keep_indices) == full_sparse.shape[0]:
+            return full_sparse
+
+        keep = np.array(keep_indices)
+        return full_sparse[keep][:, keep].tocsr()
 
     @staticmethod
     def _get_sparse_chunk(annotated_vcf: pd.DataFrame, categorizer: Categorizer):
@@ -291,7 +339,32 @@ class Correlation(DomainListMixin, Runnable):
     def get_intersection_matrix(annotated_vcf: pd.DataFrame, categorizer: Categorizer, categories: pd.Index):
         return categorizer.get_intersection_as_dataframe(annotated_vcf, categories)
 
+    def _get_category_names_for_matrix(self, matrix):
+        """Get category names list from a matrix (sparse or DataFrame)."""
+        from scipy import sparse
+        if sparse.issparse(matrix):
+            # For sparse matrices from variant mode, use filtered_combs
+            return list(self.filtered_combs)
+        else:
+            return matrix.columns.tolist()
+
+    def _save_sparse_to_zarr(self, sp_matrix, zarr_path, category_names, dtype, chunk_size=1000):
+        """Write a sparse matrix to zarr chunk-by-chunk to avoid OOM."""
+        from scipy import sparse
+        n = sp_matrix.shape[0]
+        root = zarr.open(zarr_path, mode='w')
+        root.create_group('metadata')
+        root['metadata'].attrs['category'] = category_names
+        ds = root.create_dataset('data', shape=(n, n), chunks=(chunk_size, chunk_size), dtype=dtype)
+
+        sp_csr = sp_matrix.tocsr()
+        for start in range(0, n, chunk_size):
+            end = min(start + chunk_size, n)
+            ds[start:end, :] = sp_csr[start:end].toarray().astype(dtype)
+
     def save_result(self):
+        from scipy import sparse
+
         if self.generate_inter_matrix == True:
             log.print_progress("Save the intersection matrix to file")
 
@@ -299,10 +372,16 @@ class Correlation(DomainListMixin, Runnable):
                 domain_int_path = Path(self.intersection_matrix_path)
             else:
                 domain_int_path = Path(str(self.intersection_matrix_path).replace('.zarr', f'.{self._domain}.zarr'))
-            root = zarr.open(domain_int_path, mode='w')
-            root.create_group('metadata')
-            root['metadata'].attrs['category'] = self._intersection_matrix.columns.tolist()
-            root.create_dataset('data', data=self._intersection_matrix, chunks=(1000, 1000), dtype='i4')
+
+            category_names = self._get_category_names_for_matrix(self._intersection_matrix)
+
+            if sparse.issparse(self._intersection_matrix):
+                self._save_sparse_to_zarr(self._intersection_matrix, domain_int_path, category_names, dtype='i4')
+            else:
+                root = zarr.open(domain_int_path, mode='w')
+                root.create_group('metadata')
+                root['metadata'].attrs['category'] = category_names
+                root.create_dataset('data', data=self._intersection_matrix, chunks=(1000, 1000), dtype='i4')
 
         log.print_progress("Save the correlation matrix to file")
         if self._domain == 'all':
@@ -310,8 +389,13 @@ class Correlation(DomainListMixin, Runnable):
         else:
             domain_corr_path = Path(str(self.matrix_path).replace('.zarr', f'.{self._domain}.zarr'))
 
-        root = zarr.open(domain_corr_path, mode='w')
-        root.create_group('metadata')
-        root['metadata'].attrs['category'] = self._correlation_matrix.columns.tolist()
-        root.create_dataset('data', data=self._correlation_matrix, chunks=(1000, 1000), dtype='float64')
+        category_names = self._get_category_names_for_matrix(self._correlation_matrix)
+
+        if sparse.issparse(self._correlation_matrix):
+            self._save_sparse_to_zarr(self._correlation_matrix, domain_corr_path, category_names, dtype='float64')
+        else:
+            root = zarr.open(domain_corr_path, mode='w')
+            root.create_group('metadata')
+            root['metadata'].attrs['category'] = category_names
+            root.create_dataset('data', data=self._correlation_matrix, chunks=(1000, 1000), dtype='float64')
 

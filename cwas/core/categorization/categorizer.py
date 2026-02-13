@@ -650,3 +650,72 @@ class Categorizer:
             return ['All'] + [item for item in labels if item in self._category_domain['functional_score']]
         elif annotation_term_type == 'functional_annotation':
             return ['Any'] + [item for item in labels if item in self._category_domain['functional_annotation']]
+
+    def build_indicator_matrix_sparse(self, annotated_vcf: pd.DataFrame):
+        """Build sparse binary indicator matrix X where X[v,c]=1 if variant v belongs to category c.
+
+        Categories span the full product space of all annotation groups.
+
+        Returns:
+            scipy.sparse.csr_matrix of shape (n_variants, n_total_categories)
+        """
+        from scipy import sparse
+
+        annotations, group_sizes, _ = self._prepare_annotations(annotated_vcf)
+        n_variants = len(annotated_vcf)
+        n_groups = len(group_sizes)
+
+        # Compute strides for flattened category index:
+        # category_index = sum(group_index[g] * stride[g]) for each group
+        strides = [1] * n_groups
+        for g in range(n_groups - 2, -1, -1):
+            strides[g] = strides[g + 1] * group_sizes[g + 1]
+        n_total = strides[0] * group_sizes[0]
+
+        # Build COO arrays
+        rows = []
+        cols = []
+
+        for v in range(n_variants):
+            # Get index lists for each group for this variant
+            g0 = annotations[0][v]
+            g1 = annotations[1][v]
+            g2 = annotations[2][v]
+            g3 = annotations[3][v]
+            g4 = annotations[4][v]
+
+            # 5-level nested loop over active terms
+            for i0 in g0:
+                base0 = i0 * strides[0]
+                for i1 in g1:
+                    base1 = base0 + i1 * strides[1]
+                    for i2 in g2:
+                        base2 = base1 + i2 * strides[2]
+                        for i3 in g3:
+                            base3 = base2 + i3 * strides[3]
+                            for i4 in g4:
+                                col_idx = base3 + i4 * strides[4]
+                                rows.append(v)
+                                cols.append(col_idx)
+
+        row_arr = np.array(rows, dtype=np.int32)
+        col_arr = np.array(cols, dtype=np.int32)
+        data_arr = np.ones(len(rows), dtype=np.int32)
+
+        X = sparse.coo_matrix((data_arr, (row_arr, col_arr)),
+                              shape=(n_variants, n_total))
+        return X.tocsr()
+
+
+def _build_xtx_chunk(args):
+    """Picklable worker function for multiprocessing: builds X.T @ X for a VCF chunk.
+
+    Args:
+        args: tuple of (annotated_vcf_chunk, categorizer)
+
+    Returns:
+        scipy.sparse.csr_matrix of shape (n_total_categories, n_total_categories)
+    """
+    annotated_vcf_chunk, categorizer = args
+    X = categorizer.build_indicator_matrix_sparse(annotated_vcf_chunk)
+    return (X.T @ X).tocsr()
