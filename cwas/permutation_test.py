@@ -1,7 +1,6 @@
 import argparse
 import os
 import sys
-from functools import partial
 from pathlib import Path
 from typing import Optional
 from multiprocessing import Pool
@@ -16,9 +15,12 @@ from cwas.runnable import Runnable
 from cwas.burden_test import BurdenTest
 from cwas.utils.log import print_progress, print_arg
 from cwas.utils.check import check_num_proc
-from cwas.core.burden_test.binomial import binom_two_tail
+from cwas.core.burden_test.binomial import binom_two_tail_vectorized
 
 _DEVNULL = open(os.devnull, 'w')
+
+# Module-level shared data for multiprocessing workers (inherited via fork, avoids pickling)
+_worker_data = {}
 
 class PermutationTest(BurdenTest):
     def __init__(self, args: Optional[argparse.Namespace] = None):
@@ -64,7 +66,7 @@ class PermutationTest(BurdenTest):
     @property
     def binom_pvals_path(self) -> Path:
         if self._binom_pvals_path is None:
-            f_name = re.sub(r'categorization_result\.zarr\.gz|categorization_result\.zarr', 'binom_pvals.txt.gz', self.cat_path.name)
+            f_name = re.sub(r'categorization_result\.zarr\.gz|categorization_result\.zarr', 'binom_pvals.parquet', self.cat_path.name)
             self._binom_pvals_path = self.output_dir_path / f_name
         return self._binom_pvals_path
     
@@ -120,18 +122,17 @@ class PermutationTest(BurdenTest):
         print_progress(f"Calculate permutation RRs (# of permutations: {num_perm})")
 
         var_counts = categorization_result[np.isin(self.phenotypes, ['case', 'ctrl'])].values
-        
-        _burden_test_partial = partial(self._burden_test, 
-                                       case_cnt=self.case_cnt,
-                                       ctrl_cnt=self.ctrl_cnt,
-                                       var_counts=var_counts,
-                                       use_n_carrier=self.use_n_carrier,
-                                       burden_shift=burden_shift)
+
+        # Store shared data in module-level dict (inherited via fork, avoids pickling)
+        global _worker_data
+        _worker_data['var_counts'] = var_counts
+        _worker_data['case_cnt'] = self.case_cnt
+        _worker_data['ctrl_cnt'] = self.ctrl_cnt
+        _worker_data['use_n_carrier'] = self.use_n_carrier
+        _worker_data['burden_shift'] = burden_shift
 
         if self.args.num_proc == 1:
-            array_list = _burden_test_partial(
-                (0, num_perm),
-            )
+            array_list = self._burden_test((0, num_perm))
         else:
             seed_range = []
             range_len = num_perm // self.args.num_proc
@@ -143,63 +144,94 @@ class PermutationTest(BurdenTest):
                 r = (range_len * i, range_len * (i + 1))
                 seed_range.append(r)
             seed_range.append((range_len * (self.args.num_proc - 1), num_perm))
-            def mute():
+
+            def _init_worker():
                 sys.stdout = _DEVNULL
 
             # Ignore RuntimeWarnings only for the multiprocessing part
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", category=RuntimeWarning)
-                with Pool(self.args.num_proc, initializer=mute) as pool:
-                    sub_lists = pool.map(_burden_test_partial, seed_range)
+                with Pool(self.args.num_proc, initializer=_init_worker) as pool:
+                    sub_lists = pool.map(self._burden_test, seed_range)
                 array_list = []
                 for sub_list in sub_lists:
                     array_list.extend(sub_list)
 
+        _worker_data.clear()
         return array_list
     
     @staticmethod
-    def _burden_test(seed_range: tuple, case_cnt: int, ctrl_cnt: int, var_counts: np.ndarray, use_n_carrier: bool, burden_shift: bool):
-        array_list = []
+    def _burden_test(seed_range: tuple):
+        # Read shared data from module-level global (inherited via fork, no pickling)
+        var_counts = _worker_data['var_counts']
+        case_cnt = _worker_data['case_cnt']
+        ctrl_cnt = _worker_data['ctrl_cnt']
+        use_n_carrier = _worker_data['use_n_carrier']
+        burden_shift = _worker_data['burden_shift']
+
         total_cnt = case_cnt + ctrl_cnt
+        num_perms = seed_range[1] - seed_range[0]
+        num_cats = var_counts.shape[1]
 
-        # Pre-compute carrier matrix once if needed (avoid recomputation per permutation)
+        # Prepare data matrix
         if use_n_carrier:
-            is_carrier = (var_counts > 0).astype(np.int32)
+            data = (var_counts > 0).astype(np.float64)
         else:
-            is_carrier = None
+            data = var_counts if var_counts.dtype == np.float64 else var_counts.astype(np.float64)
 
-        for seed in tqdm(range(10001 + seed_range[0], 10001 + seed_range[1]), desc="Processing", position=0, leave=True):
-            ## For reproducibility
-            np.random.seed(seed=seed)
-            ## Use boolean array directly instead of string comparison
-            are_case = np.zeros(total_cnt, dtype=bool)
-            idx = np.random.choice(total_cnt, case_cnt, replace=False)
-            are_case[idx] = True
+        # Pre-compute total counts once: ctrl_counts = total - case_counts
+        total_counts = data.sum(axis=0)  # (num_cats,)
 
-            if use_n_carrier:
-                n1 = is_carrier[are_case, :].sum(axis=0)
-                n2 = is_carrier[~are_case, :].sum(axis=0)
-            else:
-                n1 = var_counts[are_case, :].sum(axis=0).round()
-                n2 = var_counts[~are_case, :].sum(axis=0).round()
+        binom_p = case_cnt / total_cnt
 
-            norm_n1 = n1 / case_cnt
-            norm_n2 = n2 / ctrl_cnt
-            perm_rr = norm_n1 / norm_n2
+        # Pre-allocate result arrays
+        perm_rrs = np.empty((num_perms, num_cats), dtype=np.float64)
+        if burden_shift:
+            binom_pvals_arr = np.empty((num_perms, num_cats), dtype=np.float64)
 
-            binom_p = case_cnt / total_cnt
+        # Process in chunks to limit memory usage
+        CHUNK_SIZE = 100
+        for chunk_start in tqdm(range(0, num_perms, CHUNK_SIZE), desc="Processing", position=0, leave=True):
+            chunk_end = min(chunk_start + CHUNK_SIZE, num_perms)
+            chunk_size = chunk_end - chunk_start
 
-            ## Calculate binomial p values for burden-shifted data
+            # Generate all case assignments for this chunk (same seeds for reproducibility)
+            case_indicator = np.zeros((chunk_size, total_cnt), dtype=np.float32)
+            for i in range(chunk_size):
+                seed = 10001 + seed_range[0] + chunk_start + i
+                np.random.seed(seed=seed)
+                idx = np.random.choice(total_cnt, case_cnt, replace=False)
+                case_indicator[i, idx] = 1.0
+
+            # Batch matrix multiply: (chunk, total_cnt) @ (total_cnt, num_cats)
+            n1 = case_indicator @ data   # case counts: (chunk, num_cats)
+            n2 = total_counts - n1       # ctrl counts via subtraction
+
+            if not use_n_carrier:
+                np.round(n1, out=n1)
+                np.round(n2, out=n2)
+
+            with np.errstate(divide='ignore', invalid='ignore'):
+                chunk_rrs = (n1 / case_cnt) / (n2 / ctrl_cnt)
+
+            perm_rrs[chunk_start:chunk_end] = chunk_rrs
+
             if burden_shift:
-                binom_pval = np.vectorize(binom_two_tail)(
-                    n1, n2, binom_p
-                )
-                ## If RR is below 1, the sign of binomial p value is reversed
-                binom_pval[perm_rr < 1] *= -1
-                array_list.append(np.concatenate((perm_rr[np.newaxis, :], binom_pval[np.newaxis, :])))
-            else:
-                array_list.append(perm_rr[np.newaxis, :])
-        return array_list
+                # Batch binom across all permutations in chunk (single vectorized call)
+                binom_pvals_chunk = binom_two_tail_vectorized(
+                    n1.ravel(), n2.ravel(), binom_p
+                ).reshape(chunk_size, num_cats)
+                binom_pvals_chunk[chunk_rrs < 1] *= -1
+                binom_pvals_arr[chunk_start:chunk_end] = binom_pvals_chunk
+
+        # Return in the expected interleaved format
+        if burden_shift:
+            result = np.empty((2 * num_perms, num_cats), dtype=np.float64)
+            result[0::2] = perm_rrs
+            result[1::2] = binom_pvals_arr
+            return [result]
+        else:
+            return [perm_rrs]
 
     def get_perm_pval(self, perm_rrs, rr: np.ndarray):
         ## Permutation tests
@@ -212,4 +244,4 @@ class PermutationTest(BurdenTest):
         super().save_result()
         if self.burden_shift:
             print_progress(f"Save the binomial p values to the file {self.binom_pvals_path}")
-            self._binom_pvals.to_csv(self.binom_pvals_path, sep='\t', compression='gzip')
+            self._binom_pvals.to_parquet(self.binom_pvals_path, engine='pyarrow')
