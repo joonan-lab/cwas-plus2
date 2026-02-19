@@ -205,7 +205,7 @@ This is a quick tutorial for CWAS-Plus. Specific descriptions of arguments are d
     $HOME/cwas_output
     ...
     ├── de_novo_variants.permutation_test.txt.gz
-    ├── de_novo_variants.binom_pvals.txt.gz
+    ├── de_novo_variants.binom_pvals.parquet
     ...
 
 
@@ -386,7 +386,7 @@ Below are the output files generated.
   The parameters of the command are as below:
 
   - -i, --input_file: Path to the input file which is the result of binomial burden test (\*.burden_test.txt).
-  - -b, --burden_res: Path to the result of burden shift from permutation test (\*.binom_pvals.txt.gz).
+  - -b, --burden_res: Path to the result of burden shift from permutation test (\*.binom_pvals.parquet or \*.binom_pvals.txt.gz).
   - -c_info, --category_info: Path to a text file with category information (`*.category_info.txt`).
   - -o_dir, --output_directory: Path to the directory where the output files will be saved. By default, outputs will be saved at ``$CWAS_WORKSPACE``.
   - -c_set, --cat_set: Path to the category information file from binomial burden test (\*.category_info.txt).
@@ -398,7 +398,7 @@ Below are the output files generated.
   .. code-block:: solidity
     
     cwas burden_shift -i $HOME/cwas_output/de_novo_variants.burden_test.txt \
-    -b $HOME/cwas_output/de_novo_variants.binom_pvals.txt.gz \
+    -b $HOME/cwas_output/de_novo_variants.binom_pvals.parquet \
     -o_dir $HOME/cwas_output \
     -c_info $HOME/cwas_output/de_novo_variants.category_info.txt \
     -c_count $HOME/cwas_output/de_novo_variants.category_counts.txt \

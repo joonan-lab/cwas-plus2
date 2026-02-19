@@ -645,7 +645,7 @@ def burden_shift() -> argparse.ArgumentParser:
         dest='burden_res',
         required=True,
         type=Path,
-        help='Path to the result of burden shift from permutation test (*.binom_pvals.txt.gz)',
+        help='Path to the result of burden shift from permutation test (*.binom_pvals.parquet or *.binom_pvals.txt.gz)',
     )
     required.add_argument(
         '-c_info',

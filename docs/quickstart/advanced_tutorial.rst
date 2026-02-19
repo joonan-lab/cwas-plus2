@@ -460,11 +460,11 @@ This is an advanced tutorial for CWAS-Plus. Specific descriptions of arguments a
 
         cwas permutation_test -i INPUT.categorization_result.zarr -o_dir OUTPUT_DIR -s SAMPLE_LIST.txt -a ADJUST_FACTOR.txt -n 10000 -p 8 -b
 
-  The specific descriptions of the output files are as below. Each output file containing a specific pattern (i.e., ``.burden_test.txt``, ``.permutation_test.txt.gz``, ``.binom_pvals.txt.gz``) in the file name as below will be found in the output directory.
+  The specific descriptions of the output files are as below. Each output file containing a specific pattern (i.e., ``.burden_test.txt``, ``.permutation_test.txt.gz``, ``.binom_pvals.parquet``) in the file name as below will be found in the output directory.
 
   - OUTPUT.burden_test.txt: The final output file containing relative risk, two-sided binomial p-value and one-sided binomial p-value of each category.
   - OUTPUT.permutation_test.txt.gz: The final output file containing p-values calculated from permutations. This file will be used for :ref:`DAWN analysis <dawn>`.
-  - OUTPUT.binom_pvals.txt.gz: The matrix containing binomial p-values generated from each permutation. This file will be generated only with ``-b`` option given.
+  - OUTPUT.binom_pvals.parquet: The matrix containing binomial p-values generated from each permutation (saved in Apache Parquet format). This file will be generated only with ``-b`` option given.
 
 
   Example run:
@@ -591,7 +591,7 @@ This is an advanced tutorial for CWAS-Plus. Specific descriptions of arguments a
     $HOME/cwas_output
     ...
     ├── de_novo_variants.permutation_test.txt.gz
-    ├── de_novo_variants.binom_pvals.txt.gz
+    ├── de_novo_variants.binom_pvals.parquet
     ...
 
   The ``de_novo_variants.permutation_test.txt.gz`` looks like below.
@@ -619,7 +619,7 @@ This is an advanced tutorial for CWAS-Plus. Specific descriptions of arguments a
   - P: Permutation p-value. Calculated by comparing the relative risks from permuted outputs and the observed relative risk.
 
 
-  The ``de_novo_variants.binom_pvals.txt.gz`` looks like below. This file is used in the burden shift analysis. The Trial column refers to each permutation. Other columns indicate the p-values of each category. Positive p-values indicate categories enriched in cases and negative p-values indicate categories enriched in controls. This distinguishment is for the burden shift analysis (to count the number of significant categories in each phenotype).
+  The ``de_novo_variants.binom_pvals.parquet`` looks like below. This file is saved in Apache Parquet format and is used in the burden shift analysis. The Trial column refers to each permutation. Other columns indicate the p-values of each category. Positive p-values indicate categories enriched in cases and negative p-values indicate categories enriched in controls. This distinguishment is for the burden shift analysis (to count the number of significant categories in each phenotype).
 
   .. code-block:: solidity
     
@@ -932,7 +932,7 @@ Below are the output files generated.
   The parameters of the command are as below:
 
   - -i, --input_file: Path to the input file which is the result of binomial burden test (\*.burden_test.txt).
-  - -b, --burden_res: Path to the result of burden shift from permutation test (\*.binom_pvals.txt.gz).
+  - -b, --burden_res: Path to the result of burden shift from permutation test (\*.binom_pvals.parquet or \*.binom_pvals.txt.gz).
   - -c_info, --category_info: Path to a text file with category information (`*.category_info.txt`).
   - -o_dir, --output_directory: Path to the directory where the output files will be saved. By default, outputs will be saved at ``$CWAS_WORKSPACE``.
   - -c_set, --cat_set: Path to the category information file from binomial burden test (\*.category_info.txt).
@@ -944,7 +944,7 @@ Below are the output files generated.
   .. code-block:: solidity
     
     cwas burden_shift -i INPUT.burden_test.txt \
-    -b INPUT.binom_pvals.txt.gz \
+    -b INPUT.binom_pvals.parquet \
     -o_dir OUTPUT_DIR \
     -c_info INPUT.category_info.txt \
     -c_count INPUT.category_counts.txt \
@@ -957,7 +957,7 @@ Below are the output files generated.
   .. code-block:: solidity
     
     cwas burden_shift -i $HOME/cwas_output/de_novo_variants.burden_test.txt \
-    -b $HOME/cwas_output/de_novo_variants.binom_pvals.txt.gz \
+    -b $HOME/cwas_output/de_novo_variants.binom_pvals.parquet \
     -o_dir $HOME/cwas_output \
     -c_info $HOME/cwas_output/de_novo_variants.category_info.txt \
     -c_count $HOME/cwas_output/de_novo_variants.category_counts.txt \

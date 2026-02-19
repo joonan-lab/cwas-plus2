@@ -60,7 +60,11 @@ class BurdenShift(Runnable):
     @property
     def burden_shift_res(self) -> pl.DataFrame:
         if self._burden_shift_res is None:
-            self._burden_shift_res = pl.read_csv(self.args.burden_res.resolve(), separator="\t")
+            burden_path = self.args.burden_res.resolve()
+            if str(burden_path).endswith('.parquet'):
+                self._burden_shift_res = pl.read_parquet(burden_path)
+            else:
+                self._burden_shift_res = pl.read_csv(burden_path, separator="\t")
         return self._burden_shift_res       
     
     @property

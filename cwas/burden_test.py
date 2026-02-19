@@ -131,11 +131,14 @@ class BurdenTest(Runnable):
         if self._categorization_result is None:
             print_progress("Load the categorization result")
             root = zarr.open(self.cat_path, mode='r')
-            self._categorization_result = pd.DataFrame(data=root['data'],
-                              index=root['metadata'].attrs['sample_id'],
-                              columns=root['metadata'].attrs['category'])
+            arr = root['data'][:]
+            self._categorization_result = pd.DataFrame(
+                data=arr,
+                index=list(root['metadata'].attrs['sample_id']),
+                columns=list(root['metadata'].attrs['category']),
+            )
             self._categorization_result.index.name = 'SAMPLE'
-            
+
             self.save_counts_table(form = 'raw')
             if self.adj_factor is not None:
                 self._adjust_categorization_result()
@@ -150,12 +153,12 @@ class BurdenTest(Runnable):
                 "not the same with the sample IDs "
                 "from the categorization result."
             )
-        adj_factors = [
-            self.adj_factor.to_dict()["AdjustFactor"][sample_id]
-            for sample_id in self._categorization_result.index.values
-        ]
-        self._categorization_result = self._categorization_result.multiply(
-            adj_factors, axis="index"
+        adj_dict = self.adj_factor["AdjustFactor"].to_dict()
+        adj_arr = np.array([adj_dict[sid] for sid in self._categorization_result.index.values])
+        self._categorization_result = pd.DataFrame(
+            self._categorization_result.values * adj_arr[:, np.newaxis],
+            index=self._categorization_result.index,
+            columns=self._categorization_result.columns,
         )
 
     @property
@@ -316,8 +319,8 @@ class BurdenTest(Runnable):
                 self._raw_counts.index.name = 'Category'
 
             else:
-                self._raw_counts = pd.DataFrame({'Raw_counts': self.categorization_result.sum(axis=0)},
-                                                index= self.categorization_result.sum(axis=0).index)
+                raw_sum = self.categorization_result.sum(axis=0)
+                self._raw_counts = pd.DataFrame({'Raw_counts': raw_sum}, index=raw_sum.index)
                 self._raw_counts.index.name = 'Category'
         elif form =='adj':
             if self.use_n_carrier:
