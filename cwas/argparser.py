@@ -167,6 +167,22 @@ def annotation() -> argparse.ArgumentParser:
         type=Path,
         help="Directory where output file will be saved (default: {})".format(default_workspace),
     )
+    optional.add_argument(
+        "--docker-mode",
+        dest="docker_mode",
+        action="store_true",
+        default=False,
+        help="Run VEP using Docker (ensemblorg/ensembl-vep) instead of a local binary",
+    )
+    optional.add_argument(
+        "--vep-version",
+        dest="vep_version",
+        required=False,
+        default=None,
+        type=str,
+        help="VEP version for Docker image tag (e.g. 115.0 -> ensemblorg/ensembl-vep:release_115.0). "
+             "Only used with --docker-mode. If omitted, uses 'latest'.",
+    )
     other.add_argument(
         '-h',
         '--help',

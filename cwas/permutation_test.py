@@ -124,7 +124,6 @@ class PermutationTest(BurdenTest):
         var_counts = categorization_result[np.isin(self.phenotypes, ['case', 'ctrl'])].values
 
         # Store shared data in module-level dict (inherited via fork, avoids pickling)
-        global _worker_data
         _worker_data['var_counts'] = var_counts
         _worker_data['case_cnt'] = self.case_cnt
         _worker_data['ctrl_cnt'] = self.ctrl_cnt
