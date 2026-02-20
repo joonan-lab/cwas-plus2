@@ -123,8 +123,16 @@ class PermutationTest(BurdenTest):
 
         var_counts = categorization_result[np.isin(self.phenotypes, ['case', 'ctrl'])].values
 
+        # Pre-convert to float64 in parent process so forked workers share via
+        # copy-on-write instead of each creating their own 32 GB float64 copy.
+        if self.use_n_carrier:
+            data = (var_counts > 0).astype(np.float64)
+        else:
+            data = var_counts if var_counts.dtype == np.float64 else var_counts.astype(np.float64)
+        del var_counts
+
         # Store shared data in module-level dict (inherited via fork, avoids pickling)
-        _worker_data['var_counts'] = var_counts
+        _worker_data['data'] = data
         _worker_data['case_cnt'] = self.case_cnt
         _worker_data['ctrl_cnt'] = self.ctrl_cnt
         _worker_data['use_n_carrier'] = self.use_n_carrier
@@ -161,8 +169,10 @@ class PermutationTest(BurdenTest):
     
     @staticmethod
     def _burden_test(seed_range: tuple):
-        # Read shared data from module-level global (inherited via fork, no pickling)
-        var_counts = _worker_data['var_counts']
+        # Read shared data from module-level global (inherited via fork, no pickling).
+        # 'data' is already float64, pre-converted in the parent process so all
+        # workers share a single copy via copy-on-write.
+        data = _worker_data['data']
         case_cnt = _worker_data['case_cnt']
         ctrl_cnt = _worker_data['ctrl_cnt']
         use_n_carrier = _worker_data['use_n_carrier']
@@ -170,13 +180,7 @@ class PermutationTest(BurdenTest):
 
         total_cnt = case_cnt + ctrl_cnt
         num_perms = seed_range[1] - seed_range[0]
-        num_cats = var_counts.shape[1]
-
-        # Prepare data matrix
-        if use_n_carrier:
-            data = (var_counts > 0).astype(np.float64)
-        else:
-            data = var_counts if var_counts.dtype == np.float64 else var_counts.astype(np.float64)
+        num_cats = data.shape[1]
 
         # Pre-compute total counts once: ctrl_counts = total - case_counts
         total_counts = data.sum(axis=0)  # (num_cats,)
