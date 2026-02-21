@@ -17,6 +17,9 @@ The parameters of the command are as below:
 - -t, --tag: Tag used for the name of the output files. By default, None.
 - -c_cutoff, --count_cutoff: The number of cutoff for category counts. It must be positive value. By default, 7.
 - --pval: P-value threshold. By default, 0.05.
+- -N, --n_cat_sets: The number of the category sets contained in the main output plot. Top N category sets will be displayed. By default, 10.
+- -pt, --plot_title: Title of summarized plot of burden shift result. By default, "Burdenshift: Overrepresented terms".
+- -fs, --fontsize: Font size of final main output plot. By default, 10.
 
 
 

@@ -88,22 +88,13 @@ This is an advanced tutorial for CWAS-Plus. Specific descriptions of arguments a
 
   Users can install CWAS-Plus through pip or github. We recommend installing under conda environment to avoid global installation.
 
-  - pip
-
   .. code-block:: solidity
-    
-    conda create -n cwas python=3.10 r-base=4.2.2
-    conda activate cwas
-    pip install cwas
 
-  - Github
-
-  .. code-block:: solidity
-    
-    conda create -n cwas python=3.10 r-base=4.2.2
+    conda create -n cwas python r-base
     conda activate cwas
-    git clone https://github.com/joonan-lab/cwas.git
-    pip install cwas
+    git clone https://github.com/joonan30/cwas-plus2.git
+    cd cwas-plus2
+    pip install .
 
   The installation of R package **glmnet** is also required for risk score analysis.
 
@@ -321,6 +312,8 @@ This is an advanced tutorial for CWAS-Plus. Specific descriptions of arguments a
    - -v, --vcf_file: Path to the input vcf file. This file could be bgzipped or not.
    - -p, --num_proc: Number of worker processes that will be used for the annotation process. By default, 1.
    - -o_dir, --output_directory: Path to the directory where the output files will be saved. By default, outputs will be saved at ``$CWAS_WORKSPACE``.
+   - --docker-mode: Run VEP using Docker (``ensemblorg/ensembl-vep``) instead of a local binary. With this option, a local VEP installation is not required. By default, False.
+   - --vep-version: VEP version for Docker image tag (e.g. ``115.0``). Only used with ``--docker-mode``. If omitted, uses ``latest``.
 
   .. code-block:: solidity
 
@@ -377,7 +370,7 @@ This is an advanced tutorial for CWAS-Plus. Specific descriptions of arguments a
 
   Categorize variants into groups based on the annotation datasets. A single category is a combination of five domains (i.e., variant type, gene biotype, gene list, functional annotation and functional score). Details are provided in the :ref:`Overview of annotation datasets <overview>`.
 
-  The input file is the final output file resulted from annotation process. If users want to generate a matrix that contains correlation values between every two CWAS-Plus categories, they can use ``-m`` option. With this option, users must specify whether they want to calculate the correlation in variant-level (``-m variant``) or sample-level (``-m sample``). The generated correlation matrix will be used to calculate the number of effective tests for multiple comparisons.
+  The input file is the final output file resulted from annotation process. To generate correlation matrices between categories, use the separate ``cwas correlation`` step after categorization.
 
   The parameters of the command are as below:
 
@@ -641,18 +634,18 @@ In this step, users can generate two matrices, (1) a matrix that contains the nu
 
 The parameters of the command are as below:
 
-- -i, input_file: Path to the categorized zarr directory, resulted from categorization process.
+- -i, --input_file: Path to the categorized zarr directory, resulted from categorization process.
 - -v, --annotated_vcf: Path to the annotated VCF, resulted from annotation process. Required for variant-level correlation matrix (`--cm variant`).
 - -o_dir, --output_directory: Path to the directory where the output files will be saved. By default, outputs will be saved at ``$CWAS_WORKSPACE``.
 - -p, --num_proc: Number of worker processes that will be used for the categorization process. To prevent crashes caused by insufficient RAM when processing large input VCF files (e.g., over 10 million variants) using multiple cores, using small number of cores and monitoring the memory usage are recommended. By default, 1.
-- -cm, --corr_matrix: Generate a correlation matrix between every two categories. Available options are ``variant`` or ``sample``. By default, False.
+- -cm, --corr_matrix: **(Required)** Generate a correlation matrix between every two categories. Available options are ``variant`` or ``sample``.
 
   - variant: Use the intersected number of variants between two categories.
   - sample: Use the intersected number of samples between two categories.
 
 - -im, --intersection_matrix: Generate a matrix with intersected number of variants (or samples with variants) bewteen categories.
-- -c_info, --category_info: Path to a text file with category information (`*.category_info.txt`).
-- -d, --domain_list: Domain list to filter categories based on GENCODE domain. By default, `all`.
+- -c_info, --category_info: Path to a text file with category information (``*.category_info.txt``).
+- -d, --domain_list: Domain list to filter categories based on GENCODE domain. By default, ``all``.
 
 .. code-block:: solidity
 
@@ -699,7 +692,7 @@ Below are the output files generated.
       - inter: A matrix with intersected number of variants (or samples) between categories.
 
     - -o_dir, --output_directory: Path to the directory where the output files will be saved. By default, outputs will be saved at ``$CWAS_WORKSPACE``.
-    - -n, --num_sim: Number of eigen values to use in calculating the number of effective tests. The maximum number is equivalent to the number of categories. By default, 10000.
+    - -n, --num_eig: Number of eigen values to use in calculating the number of effective tests. The maximum number is equivalent to the number of categories. By default, 10000.
     - -s, --sample_info: Path to the txt file containing the sample information for each sample. This file must have three columns (``SAMPLE``, ``FAMILY``, ``PHENOTYPE``) with the exact name. Required only when input format is set to ``inter`` or ``-thr`` is not given. By default, None.
     - -c_count, --cat_count: Path of the categories counts file from binomial burden test (\*.category_counts.txt).
     - -t, --tag: Tag used for the name of the output files. By default, None.
@@ -743,11 +736,11 @@ Below are the output files generated.
             
             cwas effective_num_test -i INPUT.correlation_matrix.zarr -o_dir OUTPUT_DIR -if corr -n 10000 -c_set CATEGORY_SET.txt -c_count INPUT.category_counts.txt
 
-  The specific descriptions of the output files are as below. Each output file containing a specific pattern (i.e., ``.neg_lap.*.pickle``, ``.eig_vals.*.pickle``, ``.eig_vecs.*.txt.gz``) in the file name as below will be found in the output directory. If users set tag, the tag will be inserted in the file name like this: ``OUTPUT.eig_vecs.tag.txt.gz``.
+  The specific descriptions of the output files are as below. Each output file containing a specific pattern (i.e., ``.neg_lap.*.zarr``, ``.eig_vals.*.zarr``, ``.eig_vecs.*.zarr``) in the file name as below will be found in the output directory. If users set tag, the tag will be inserted in the file name like this: ``OUTPUT.eig_vecs.tag.zarr``.
 
-  - OUTPUT.neg_lap.pickle: The negative laplacian matrix. This file is an intermediate output during eigen decomposition.
-  - OUTPUT.eig_vals.pickle: The matrix containing eigen values. This file will be used to calculate the number of effective tests.
-  - OUTPUT.eig_vecs.txt.gz: The matrix containing eigen vectors. This file will be used as an input for :ref:`DAWN analysis <dawn>`.
+  - OUTPUT.neg_lap.zarr: The negative laplacian matrix. This file is an intermediate output during eigen decomposition.
+  - OUTPUT.eig_vals.zarr: The matrix containing eigen values. This file will be used to calculate the number of effective tests.
+  - OUTPUT.eig_vecs.zarr: The matrix containing eigen vectors. This file will be used as an input for :ref:`DAWN analysis <dawn>`.
 
   In addition, the number of effective tests will be printed as below when ``-ef`` option is given. The number will also be written in ``.cwas_env`` as environment variable ``N_EFFECTIVE_TEST``.
 
@@ -775,9 +768,9 @@ Below are the output files generated.
 
     $HOME/cwas_output
     ...
-    ├── de_novo_variants.neg_lap.pickle
-    ├── de_novo_variants.eig_vals.pickle
-    ├── de_novo_variants.eig_vecs.txt.gz
+    ├── de_novo_variants.neg_lap.zarr
+    ├── de_novo_variants.eig_vals.zarr
+    ├── de_novo_variants.eig_vecs.zarr
     ├── de_novo_variants.neg_lap.TFBS.pickle
     ├── de_novo_variants.eig_vals.TFBS.pickle
     ├── de_novo_variants.eig_vecs.TFBS.txt.gz
@@ -819,6 +812,9 @@ Below are the output files generated.
   - --predict_only: If set, only predict the risk score and skip the permutation process. By default, False.
   - -S, --seed: Seed of random state. By default, 42.
   - -p, --num_proc: Number of worker processes that will be used for the permutation process. By default, 1.
+  - -fs_group, --feature_selection_group: Specify the list of groups for feature selection. By default, "gene_set,functional_score,functional_annotation".
+  - -pt, --plotsize: Plot size of main histogram plot (width,height in inches). By default, "7,7".
+  - -fs, --fontsize: Font size of main histogram plot. By default, 10.
 
 
   .. code-block:: solidity
@@ -827,7 +823,7 @@ Below are the output files generated.
     -o_dir OUTPUT_DIR \
     -s SAMPLE_LIST.txt \
     -a ADJUST_FACTOR.txt \
-    -c CATEGORY_SET.txt \
+    -c_info CATEGORY_SET.txt \
     -thr 3 \
     -tf 0.7 \
     -n_reg 10 \
@@ -940,9 +936,12 @@ Below are the output files generated.
   - -t, --tag: Tag used for the name of the output files. By default, None.
   - -c_cutoff, --count_cutoff: The number of cutoff for category counts. It must be positive value. By default, 7.
   - --pval: P-value threshold. By default, 0.05.
+  - -N, --n_cat_sets: The number of the category sets contained in the main output plot. Top N will be displayed. By default, 10.
+  - -pt, --plot_title: Title of summarized plot of burden shift result. By default, "Burdenshift: Overrepresented terms".
+  - -fs, --fontsize: Font size of final main output plot. By default, 10.
 
   .. code-block:: solidity
-    
+
     cwas burden_shift -i INPUT.burden_test.txt \
     -b INPUT.binom_pvals.parquet \
     -o_dir OUTPUT_DIR \
@@ -987,29 +986,32 @@ Below are the output files generated.
   The parameters of the command are as below:
 
   - -e, --eig_vector: Eigen vector file. This is the output file from :ref:`calculation of effective number of tests <effnumtest>`. The file name must have pattern ``*eig_vecs*.zarr``.
-  - -c, --corr_mat: Category correlation matrix file. This is the output file from :ref:`categorization <categorization>`. The file name must have pattern ``*correlation_matrix*.zarr``.
+  - -c, --corr_mat: Category correlation matrix file. This is the output file from :ref:`correlation <correlation>`. The file name must have pattern ``*correlation_matrix*.zarr``.
   - -P, --permut_test: Permutation test file. This is the output file from :ref:`burden test <permtest>`. The file name must have pattern ``*permutation_test*.txt.gz``.
+  - -c_count, --cat_count: Path of the categories counts file from burden test.
   - -o_dir, --output_directory: Path to the directory where the output files will be saved. By default, outputs will be saved at ``$CWAS_WORKSPACE``.
-  - -r, --range: Range (i.e., (start,end)) to find optimal K for k-means clustering. It must contain two integers that are comma-separated. The first integer refers to the start number and must be above 1. The second integer refers to the end.
+  - --leiden: Perform Leiden clustering. Specify the input matrix type: ``eigen_vector`` or ``corr_mat``. By default, None.
+  - -res, --resolution: Resolution for Leiden clustering. By default, 1.
+  - -r, --range: Range (i.e., (start,end)) to find optimal K for k-means clustering. It must contain two integers that are comma-separated. The first integer refers to the start number and must be above 1. The second integer refers to the end. By default, 2,100.
   - -k, --k_val: K for K-means clustering. With this argument, users can determine K manually. ``-r`` and ``-k`` arguments are mutually exclusive. If ``-k`` is given, ``-r`` will be ignored.
-  - -s, --seed: Seed value for t-SNE. Same seed will generate same results for the same inputs.
+  - -s, --seed: Seed value for t-SNE. Same seed will generate same results for the same inputs. By default, 42.
   - -T, --tsen_method: Gradient calculation algorithm for t-SNE, which is used in TSNE of sklearn. If the dataset is large, 'barnes_hut' is recommended. By default, exact.
   - -t, --tag: Tag used for the name of the output files. By default, None.
-  - -c_count, --cat_count: Path of the categories counts file from burden test.
-  - -C, --count_threshold: The treshold of variant (or sample) counts. The least amount of variants a category should have.
-  - -R, --corr_threshold: The threshold of correlation values between clusters. Computed by the mean value of correlation values of categories within a cluster.
-  - -S, --size_threshold: The threshold of the number of categories per cluster. The least amount of categories a cluster should have.
+  - -l, --lambda: Lambda value for parameter tuning. By default, 5.25.
+  - -C, --count_threshold: The threshold of variant (or sample) counts. The least amount of variants a category should have. By default, 20.
+  - -R, --corr_threshold: The threshold of correlation values between clusters. Computed by the mean value of correlation values of categories within a cluster. By default, 0.12.
+  - -S, --size_threshold: The threshold of the number of categories per cluster. The least amount of categories a cluster should have. By default, 2.
   - -p, --num_proc: Number of worker processes that will be used for the DAWN analysis. By default, 1.
 
 
   .. code-block:: solidity
-  
+
       cwas dawn -e INPUT_EIG_VEC \
       -c INPUT_CORR_MATRIX \
       -P INPUT_PERMUATION_RESULT \
       -o_dir OUTPUT_DIR \
-      -r 2,500 \
-      -s 123 \
+      -r 2,100 \
+      -s 42 \
       -t test \
       -c_count CATEGORY_COUNTS.txt \
       -C 20 \

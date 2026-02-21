@@ -10,17 +10,17 @@ In this step, users can generate two matrices, (1) a matrix that contains the nu
 
 The parameters of the command are as below:
 
-- -i, input_file: Path to the categorized zarr directory, resulted from categorization process.
+- -i, --input_file: Path to the categorized zarr directory, resulted from categorization process.
 - -v, --annotated_vcf: Path to the annotated VCF, resulted from annotation process. Required for variant-level correlation matrix (`--cm variant`).
 - -o_dir, --output_directory: Path to the directory where the output files will be saved. By default, outputs will be saved at ``$CWAS_WORKSPACE``.
 - -p, --num_proc: Number of worker processes that will be used for the categorization process. To prevent crashes caused by insufficient RAM when processing large input VCF files (e.g., over 10 million variants) using multiple cores, using small number of cores and monitoring the memory usage are recommended. By default, 1.
-- -cm, --corr_matrix: Generate a correlation matrix between every two categories. Available options are ``variant`` or ``sample``. By default, False.
+- -cm, --corr_matrix: **(Required)** Generate a correlation matrix between every two categories. Available options are ``variant`` or ``sample``.
 
   - variant: Use the intersected number of variants between two categories.
   - sample: Use the intersected number of samples between two categories.
 
 - -im, --intersection_matrix: Generate a matrix with intersected number of variants (or samples with variants) bewteen categories.
-- c_info, --category_info: Path to a text file with category information (`*.category_info.txt`).
+- -c_info, --category_info: Path to a text file with category information (`*.category_info.txt`).
 - -d, --domain_list: Domain list to filter categories based on GENCODE domain. By default, `all`.
 
 .. code-block:: solidity

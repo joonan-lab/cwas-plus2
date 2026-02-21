@@ -7,9 +7,9 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'CWAS-Plus'
-copyright = '2023, Minwoo Jeong'
+copyright = '2025, Minwoo Jeong'
 author = 'Minwoo Jeong'
-release = 'Feb 18, 2022'
+release = '0.1.8'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

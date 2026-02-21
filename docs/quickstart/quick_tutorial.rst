@@ -13,23 +13,13 @@ This is a quick tutorial for CWAS-Plus. Specific descriptions of arguments are d
   
   ``cwas start`` command creates a working directory (``-w``) along with a configuration file.
 
-  - pip
-
   .. code-block:: solidity
-    
-    conda create -n cwas python=3.10 r-base=4.2.2
-    conda activate cwas
-    pip install cwas
-    cwas start
 
-  - Github
-
-  .. code-block:: solidity
-    
-    conda create -n cwas python=3.10 r-base=4.2.2
+    conda create -n cwas python r-base
     conda activate cwas
-    git clone https://github.com/joonan-lab/cwas.git
-    pip install cwas
+    git clone https://github.com/joonan30/cwas-plus2.git
+    cd cwas-plus2
+    pip install .
     cwas start
 
   The installation of R package **glmnet** is also required for risk score analysis.
@@ -149,8 +139,6 @@ This is a quick tutorial for CWAS-Plus. Specific descriptions of arguments are d
     $HOME/cwas_output
     ...
     ├── de_novo_variants.categorization_result.zarr
-    ├── de_novo_variants.intersection_matrix.zarr
-    ├── de_novo_variants.correlation_matrix.zarr
     ...
 
 
@@ -219,11 +207,11 @@ In this step, users can generate two matrices, (1) a matrix that contains the nu
 
 The parameters of the command are as below:
 
-- -i, input_file: Path to the categorized zarr directory, resulted from categorization process.
+- -i, --input_file: Path to the categorized zarr directory, resulted from categorization process.
 - -v, --annotated_vcf: Path to the annotated VCF, resulted from annotation process. Required for variant-level correlation matrix (`--cm variant`).
 - -o_dir, --output_directory: Path to the directory where the output files will be saved. By default, outputs will be saved at ``$CWAS_WORKSPACE``.
 - -p, --num_proc: Number of worker processes that will be used for the categorization process. To prevent crashes caused by insufficient RAM when processing large input VCF files (e.g., over 10 million variants) using multiple cores, using small number of cores and monitoring the memory usage are recommended. By default, 1.
-- -cm, --corr_matrix: Generate a correlation matrix between every two categories. Available options are ``variant`` or ``sample``. By default, False.
+- -cm, --corr_matrix: **(Required)** Generate a correlation matrix between every two categories. Available options are ``variant`` or ``sample``.
 
   - variant: Use the intersected number of variants between two categories.
   - sample: Use the intersected number of samples between two categories.
@@ -267,7 +255,7 @@ Below are the output files generated.
       - inter: A matrix with intersected number of variants (or samples) between categories.
 
     - -o_dir, --output_directory: Path to the directory where the output files will be saved. By default, outputs will be saved at ``$CWAS_WORKSPACE``.
-    - -n, --num_sim: Number of eigen values to use in calculating the number of effective tests. The maximum number is equivalent to the number of categories. By default, 10000.
+    - -n, --num_eig: Number of eigen values to use in calculating the number of effective tests. The maximum number is equivalent to the number of categories. By default, 10000.
     - -s, --sample_info: Path to the txt file containing the sample information for each sample. This file must have three columns (``SAMPLE``, ``FAMILY``, ``PHENOTYPE``) with the exact name. Required only when input format is set to ``inter`` or ``-thr`` is not given. By default, None.
     - -c_count, --cat_count: Path of the categories counts file from binomial burden test (\*.category_counts.txt).
     - -t, --tag: Tag used for the name of the output files. By default, None.
@@ -305,12 +293,12 @@ Below are the output files generated.
 
     $HOME/cwas_output
     ...
-    ├── de_novo_variants.neg_lap.pickle
-    ├── de_novo_variants.eig_vals.pickle
-    ├── de_novo_variants.eig_vecs.txt.gz
-    ├── de_novo_variants.neg_lap.TFBS.pickle
-    ├── de_novo_variants.eig_vals.TFBS.pickle
-    ├── de_novo_variants.eig_vecs.TFBS.txt.gz
+    ├── de_novo_variants.neg_lap.zarr
+    ├── de_novo_variants.eig_vals.zarr
+    ├── de_novo_variants.eig_vecs.zarr
+    ├── de_novo_variants.neg_lap.TFBS.zarr
+    ├── de_novo_variants.eig_vals.TFBS.zarr
+    ├── de_novo_variants.eig_vecs.TFBS.zarr
     ...
 
   The number of effective tests will be shown like below.

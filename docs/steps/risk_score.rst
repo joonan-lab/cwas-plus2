@@ -53,10 +53,13 @@ CWAS-Plus utilizes categorized results to estimate the optimal predictor for the
 - --predict_only: If set, only predict the risk score and skip the permutation process. By default, False.
 - -S, --seed: Seed of random state. By default, 42.
 - -p, --num_proc: Number of worker processes that will be used for the permutation process. By default, 1.
+- -fs_group, --feature_selection_group: Specify the list of groups for feature selection. Available options are ``gene_set``, ``functional_score``, ``functional_annotation``. By default, "gene_set,functional_score,functional_annotation".
+- -pt, --plotsize: Plot size of main histogram plot (width,height in inches, comma-separated). By default, "7,7".
+- -fs, --fontsize: Font size of main histogram plot. By default, 10.
 
 .. code-block:: solidity
   
-  cwas risk_score -i INPUT.categorization_result.txt.gz \
+  cwas risk_score -i INPUT.categorization_result.zarr \
   -o_dir OUTPUT_DIR \
   -s SAMPLE_LIST.txt \
   -a ADJUST_FACTOR.txt \
@@ -75,7 +78,7 @@ Users can perform two types of risk score analyses in a loop to identify annotat
 
     .. code-block:: solidity
     
-    cwas risk_score -i INPUT.categorization_result.txt.gz \
+    cwas risk_score -i INPUT.categorization_result.zarr \
     -o_dir OUTPUT_DIR \
     -s SAMPLE_LIST.txt \
     -a ADJUST_FACTOR.txt \
@@ -92,7 +95,7 @@ Users can perform two types of risk score analyses in a loop to identify annotat
 
     .. code-block:: solidity
     
-    cwas risk_score -i INPUT.categorization_result.txt.gz \
+    cwas risk_score -i INPUT.categorization_result.zarr \
     -o_dir OUTPUT_DIR \
     -s SAMPLE_LIST.txt \
     -a ADJUST_FACTOR.txt \

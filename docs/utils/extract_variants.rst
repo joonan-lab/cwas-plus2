@@ -36,4 +36,4 @@ The parameters of the command are as below:
 
 .. code-block:: solidity
 
-    cwas extract_variant -i INPUT.annotated.vcf.gz -o_dir OUTPUT_DIR -t filtered -ai -c_set CATEGORY_SET.txt -ai
+    cwas extract_variant -i INPUT.annotated.vcf.gz -o_dir OUTPUT_DIR -t filtered -ai -c_set CATEGORY_SET.txt

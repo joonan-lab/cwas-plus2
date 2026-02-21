@@ -48,6 +48,12 @@ For binomial tests, two types of tests are used: two-sided binomial tests and on
 
 
 - -u, --use_n_carrier: Enables the sample-level analysis (use of the number of samples with variants in each category for burden test instead of the number of variants). With this option, CWAS-Plus counts the number of samples that carry at least one variant of each category.
+- -t, --tag: Tags of category queried for highlighting points on the volcano plot. If you use multiple tags, concatenate by comma (e.g. ``CRE,CHD8``). By default, None.
+- -num_ef, --num_effective_test: Number of effective tests for multiple comparison correction. By default, None.
+- -ms, --marker_size: Marker size of the volcano plot (unit: pt). By default, 15.
+- -fs, --font_size: Font size of the volcano plot (unit: pt). By default, 15.
+- -ps, --plot_size: Plot size of the volcano plot, width and height are the same (unit: inch). By default, 7.
+- -pt, --plot_title: Title of volcano plot of binomial test result. By default, "Binomial test result".
 
 .. code-block:: solidity
 
