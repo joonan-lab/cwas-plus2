@@ -97,7 +97,7 @@ pip install .
 ```
 
 
-In addition, you must install _[Variant Effect Predictor (VEP)](https://www.ensembl.org/vep)_.
+In addition, you must install _[Variant Effect Predictor (VEP)](https://www.ensembl.org/vep)_ unless you plan to use the `--docker-mode` option in the annotation step.
 
 ### CWAS Execution
 
