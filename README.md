@@ -144,8 +144,12 @@ The `VEP_MIS_DB` is a database that is used to define damaging missense variants
 After writing the above file, run this command.
 
 ```bash
-cwas configuration
+cwas configuration [-f]
 ```
+
+| Argument | Description |
+| --- | --- |
+| `-f`, `--force_overwrite` | Force to overwrite the result |
 
 Following files will be generated in your home directory as default. If you specify _CWAS workspace_, the files will be located in the same directory as the `configuration.txt`.
 
@@ -165,10 +169,13 @@ Following files will be generated in your home directory as default. If you spec
 This step merges the BED files to annotate variants. Run the following command.
 
 ```bash
-cwas preparation -p 4
+cwas preparation [-p 4] [-f]
 ```
 
-You can adjust the number of worker processes with `-p`.
+| Argument | Description | Default |
+| --- | --- | --- |
+| `-p`, `--num_proc` | Max number of worker processes | 1 |
+| `-f`, `--force_overwrite` | Force to overwrite the result | - |
 
 After running this, merged BED file and its index will be generated in your _CWAS workspace_.
 
@@ -182,13 +189,19 @@ After running this, merged BED file and its index will be generated in your _CWA
 
 #### 4. Annotation
 
-This step annotate your VCF file using _VEP_. Run this command.
+This step annotates your VCF file using _VEP_. Run this command.
 
 ```bash
-cwas annotation -v /path/to/your/vcf -p 4
+cwas annotation -v /path/to/your/vcf [-p 4] [-o_dir /path/to/output] [--docker-mode] [--vep-version 115.0]
 ```
 
-You can adjust the number of worker processes with `-p`.
+| Argument | Description | Default |
+| --- | --- | --- |
+| `-v`, `--vcf_file` | **(Required)** Target VCF file | - |
+| `-p`, `--num_proc` | Number of processes for the annotation | 1 |
+| `-o_dir`, `--output_directory` | Directory where output file will be saved | `$CWAS_WORKSPACE` |
+| `--docker-mode` | Run VEP using Docker (`ensemblorg/ensembl-vep`) instead of a local binary | False |
+| `--vep-version` | VEP version for Docker image tag (e.g. `115.0`). Only used with `--docker-mode` | latest |
 
 Here is the result file.
 
@@ -201,13 +214,17 @@ Here is the result file.
 
 #### 5. Categorization
 
-This step categorize your variants using the annotation datasets. Run this command.
+This step categorizes your variants using the annotation datasets. Run this command.
 
 ```bash
-cwas categorization -i /path/to/your/annotated/vcf -p 4
+cwas categorization -i /path/to/your/annotated/vcf [-p 4] [-o_dir /path/to/output]
 ```
 
-You can adjust the number of worker processes with `-p`.
+| Argument | Description | Default |
+| --- | --- | --- |
+| `-i`, `--input_file` | **(Required)** Annotated VCF file | - |
+| `-p`, `--num_proc` | Number of worker processes | 1 |
+| `-o_dir`, `--output_directory` | Directory where output file will be saved | `$CWAS_WORKSPACE` |
 
 After running this, you will get...
 
@@ -220,7 +237,7 @@ After running this, you will get...
 
 Categorized results are generated in [zarr format](https://zarr.readthedocs.io/en/stable/index.html). Outputs are easily stored and loaded with zarr.
 
-#### 6. Burden Test (Binomial Test)
+#### 6. Burden Test
 
 This step is for calculation of relative risks and p-values for each category. As a default, these tests are based on variant-level analysis. The `--use_n_carrier` option can be used for sample-level analysis.
 
@@ -229,10 +246,23 @@ This step is for calculation of relative risks and p-values for each category. A
 This step runs category-based burden test using the categorization result. The type of the test is binomial test. Run this command.
 
 ```bash
-cwas binomial_test -i /path/to/your/categorization/result -s /path/to/your/samples [-a /path/to/your/adj_factors]
+cwas binomial_test -i /path/to/your/categorization/result -s /path/to/your/samples \
+    [-a /path/to/your/adj_factors] [-u] [-t TAG] [-num_ef N]
 ```
 
-`[]` means that this is optional. If `-a` option is not specified, this step will bypass the adjustment step.
+| Argument | Description | Default |
+| --- | --- | --- |
+| `-i`, `--input_file` | **(Required)** Categorized file (*.zarr) from categorization step | - |
+| `-s`, `--sample_info` | **(Required)** File listing information of your samples | - |
+| `-a`, `--adjustment_factor` | File listing adjustment factors of each sample | None |
+| `-u`, `--use_n_carrier` | Use the number of samples with variants instead of variant counts | False |
+| `-t`, `--tag` | Tags for highlighting points on the volcano plot (e.g. `CRE,CHD8`) | None |
+| `-num_ef`, `--num_effective_test` | Number of effective tests | None |
+| `-o_dir`, `--output_directory` | Directory where output file will be saved | `$CWAS_WORKSPACE` |
+| `-ms`, `--marker_size` | Marker size of the volcano plot (pt) | 15 |
+| `-fs`, `--font_size` | Font size of the volcano plot (pt) | 15 |
+| `-ps`, `--plot_size` | Plot size of the volcano plot (inch, square) | 7 |
+| `-pt`, `--plot_title` | Title of the volcano plot | "Binomial test result" |
 
 After running this, you will get...
 
@@ -251,10 +281,20 @@ After running this, you will get...
 This step runs category-based permutations using the categorization result. Run this command.
 
 ```bash
-cwas permutation_test -i /path/to/your/categorization/result -s /path/to/your/samples [-a /path/to/your/adj_factors] [-b]
+cwas permutation_test -i /path/to/your/categorization/result -s /path/to/your/samples \
+    [-a /path/to/your/adj_factors] [-n 10000] [-p 4] [-b] [-u]
 ```
 
-If `-b` option is specified, this step will generate binomial p-values for each permutation. This p-values will be used for burden shift and DAWN analysis.
+| Argument | Description | Default |
+| --- | --- | --- |
+| `-i`, `--input_file` | **(Required)** Categorized file (*.zarr) from categorization step | - |
+| `-s`, `--sample_info` | **(Required)** File listing information of your samples | - |
+| `-a`, `--adjustment_factor` | File listing adjustment factors of each sample | None |
+| `-n`, `--num_perm` | Number of label-swapping permutations | 10000 |
+| `-p`, `--num_proc` | Number of worker processes | 1 |
+| `-b`, `--burden_shift` | Generate binomial p-values for each permutation (for burden shift and DAWN) | False |
+| `-u`, `--use_n_carrier` | Use the number of samples with variants instead of variant counts | False |
+| `-o_dir`, `--output_directory` | Directory where output file will be saved | `$CWAS_WORKSPACE` |
 
 After running this, you will get...
 
@@ -265,3 +305,172 @@ After running this, you will get...
 ├── {Your VCF filename}.binom_pvals.parquet
 ...
 ```
+
+#### 7. Correlation
+
+This step generates a correlation matrix between categories.
+
+```bash
+cwas correlation -i /path/to/your/categorization/result -cm variant [-v /path/to/annotated/vcf] \
+    [-im] [-p 4] [-d all]
+```
+
+| Argument | Description | Default |
+| --- | --- | --- |
+| `-i`, `--input_file` | **(Required)** Categorized file (*.zarr) from categorization step | - |
+| `-cm`, `--corr_matrix` | **(Required)** Correlation matrix type: `variant` or `sample` | - |
+| `-v`, `--annotated_vcf` | Annotated VCF file. Required for variant-level correlation (`-cm variant`) | None |
+| `-im`, `--intersection_matrix` | Also generate a matrix of intersected variant/sample counts between categories | False |
+| `-p`, `--num_proc` | Number of worker processes (recommend using 1/3 of available cores) | 1 |
+| `-d`, `--domain_list` | Domain list to filter categories (see [Domain options](#domain-options)) | all |
+| `-c_info`, `--category_info` | Path to category information file (*.category_info.txt) | None |
+| `-o_dir`, `--output_directory` | Directory where output file will be saved | `$CWAS_WORKSPACE` |
+
+#### 8. Effective Number of Tests
+
+This step calculates the effective number of tests via eigen decomposition of the correlation or intersection matrix.
+
+```bash
+cwas effective_num_test -i /path/to/your/matrix -c_count /path/to/category_counts \
+    [-if corr] [-n 10000] [-thr N] [-s /path/to/samples] [-d all] [-ef]
+```
+
+| Argument | Description | Default |
+| --- | --- | --- |
+| `-i`, `--input_file` | **(Required)** Correlation matrix or intersection matrix from categorization | - |
+| `-c_count`, `--cat_count` | **(Required)** Category counts file from burden test or sign test | - |
+| `-if`, `--input_format` | Input format: `corr` (correlation matrix) or `inter` (intersection matrix) | corr |
+| `-n`, `--num_eig` | Number of eigenvalues to use | 10000 |
+| `-thr`, `--threshold` | Minimum variant/sample count to filter categories | None |
+| `-s`, `--sample_info` | Sample info file (required when `-thr` is not given) | None |
+| `-c_set`, `--category_set` | Text file containing categories for eigen decomposition | None |
+| `-d`, `--domain_list` | Domain list to filter categories (see [Domain options](#domain-options)) | all |
+| `-ef`, `--eff_num_test` | Only calculate effective number of tests (eigenvalues only, skip eigenvectors) | False |
+| `-t`, `--tag` | Tag used for the name of output files | None |
+| `-o_dir`, `--output_directory` | Directory where output file will be saved | `$CWAS_WORKSPACE` |
+
+#### 9. Burden Shift
+
+This step performs burden shift analysis using permutation results.
+
+```bash
+cwas burden_shift -i /path/to/burden_test.txt -b /path/to/binom_pvals.parquet \
+    -c_info /path/to/category_info.txt -c_count /path/to/category_counts.txt \
+    [-c_cutoff 7] [-pval 0.05] [-N 10]
+```
+
+| Argument | Description | Default |
+| --- | --- | --- |
+| `-i`, `--input_file` | **(Required)** Burden test result (*.burden_test.txt) | - |
+| `-b`, `--burden_res` | **(Required)** Burden shift result from permutation (*.binom_pvals.parquet or *.binom_pvals.txt.gz) | - |
+| `-c_info`, `--category_info` | **(Required)** Category information file (*.category_info.txt) | - |
+| `-c_count`, `--cat_count` | **(Required)** Category counts file (*.category_counts.txt) | - |
+| `-c_cutoff`, `--count_cutoff` | Minimum count cutoff for categories (must be positive) | 7 |
+| `-pval`, `--pval` | P-value threshold | 0.05 |
+| `-c_set`, `--category_set` | List of interest category sets for the main output plot | None |
+| `-N`, `--n_cat_sets` | Number of top category sets in the main output plot | 10 |
+| `-t`, `--tag` | Tag used for the name of output files | None |
+| `-pt`, `--plot_title` | Title of the summarized plot | "Burdenshift: Overrepresented terms" |
+| `-fs`, `--fontsize` | Font size of the main output plot | 10 |
+| `-o_dir`, `--output_directory` | Directory where output file will be saved | `$CWAS_WORKSPACE` |
+
+#### 10. Risk Score
+
+This step performs risk score analysis using categorization results.
+
+```bash
+cwas risk_score -i /path/to/categorization_result.zarr -s /path/to/samples \
+    [-a /path/to/adj_factors] [-d all] [-thr 3] [-n 1000] [-p 4]
+```
+
+| Argument | Description | Default |
+| --- | --- | --- |
+| `-i`, `--input_file` | **(Required)** Categorization result file (*.zarr) | - |
+| `-s`, `--sample_info` | **(Required)** File listing sample IDs with families and phenotypes | - |
+| `-a`, `--adjustment_factor` | File listing adjustment factors of each sample | None |
+| `-c_info`, `--category_info` | Path to category information file (*.category_info.txt) | None |
+| `-d`, `--domain_list` | Domain list to filter categories (see [Domain options](#domain-options)) | all |
+| `-t`, `--tag` | Tag used for the name of output files | None |
+| `--do_each_one` | Use each annotation individually to calculate risk score | False |
+| `--leave_one_out` | Calculate risk score excluding one annotation at a time | False |
+| `-fs_group`, `--feature_selection_group` | Groups for feature selection | "gene_set,functional_score,functional_annotation" |
+| `-u`, `--use_n_carrier` | Use number of samples with variants instead of variant counts | False |
+| `-thr`, `--threshold` | Minimum variant count in controls to select rare categories | 3 |
+| `-tf`, `--train_set_fraction` | Fraction of the training set | 0.7 |
+| `-n_reg`, `--num_regression` | Number of regression trials for mean R-squared | 10 |
+| `-f`, `--fold` | Number of folds in (Stratified)KFold | 5 |
+| `-n`, `--n_permute` | Number of permutations for p-value calculation | 1000 |
+| `--predict_only` | Only predict the risk score, skip permutation test | False |
+| `-p`, `--num_proc` | Number of worker processes for permutation | 1 |
+| `-S`, `--seed` | Seed of random state | 42 |
+| `-pt`, `--plotsize` | Plot size as "width,height" in inches | "7,7" |
+| `-fs`, `--fontsize` | Font size of the main plot | 10 |
+| `-o_dir`, `--output_directory` | Directory where output file will be saved | `$CWAS_WORKSPACE` |
+
+#### 11. DAWN Analysis
+
+This step performs DAWN (Detecting Association With Networks) analysis.
+
+```bash
+cwas dawn -e /path/to/eig_vecs -c /path/to/corr_matrix -P /path/to/permutation_test \
+    -c_count /path/to/category_counts [-k K] [-p 4]
+```
+
+| Argument | Description | Default |
+| --- | --- | --- |
+| `-e`, `--eig_vector` | **(Required)** Eigenvectors file from effective number test | - |
+| `-c`, `--corr_mat` | **(Required)** Category correlation matrix file | - |
+| `-P`, `--permut_test` | **(Required)** Permutation test result file | - |
+| `-c_count`, `--cat_count` | **(Required)** Category counts file from burden test | - |
+| `--leiden` | Perform Leiden clustering using: `eigen_vector` or `corr_mat` | None |
+| `-res`, `--resolution` | Resolution for Leiden clustering | 1 |
+| `-r`, `--range` | Range (start,end) to find optimal K for k-means (start > 1) | "2,100" |
+| `-k`, `--k_val` | Fixed K for k-means clustering (mutually exclusive with `-r`) | None |
+| `-s`, `--seed` | Seed value for t-SNE | 42 |
+| `-T`, `--tsen_method` | t-SNE gradient algorithm: `barnes_hut` or `exact` | exact |
+| `-t`, `--tag` | Tag used for the name of output files | None |
+| `-l`, `--lambda` | Lambda value for parameter tuning | 5.25 |
+| `-C`, `--count_threshold` | Minimum variant/sample count per category | 20 |
+| `-R`, `--corr_threshold` | Correlation threshold between clusters | 0.12 |
+| `-S`, `--size_threshold` | Minimum number of categories per cluster | 2 |
+| `-p`, `--num_proc` | Number of worker processes | 1 |
+| `-o_dir`, `--output_directory` | Directory where output file will be saved | `$CWAS_WORKSPACE` |
+
+#### 12. Extract Variant
+
+This step extracts variants of interest from the annotated VCF file.
+
+```bash
+cwas extract_variant -i /path/to/annotated/vcf [-c_set /path/to/category_set] [-t TAG] [-ai]
+```
+
+| Argument | Description | Default |
+| --- | --- | --- |
+| `-i`, `--input_file` | **(Required)** Annotated VCF file | - |
+| `-c_set`, `--category_set` | Text file containing categories for extracting variants | None |
+| `-t`, `--tag` | Tag used for output file name (output.\<tag\>.extracted_variants.txt.gz) | None |
+| `-ai`, `--annotation_info` | Save with annotation information attached (gene list, functional annotations, etc) | False |
+| `-o_dir`, `--output_directory` | Directory where output file will be saved | `$CWAS_WORKSPACE` |
+
+### Domain options
+
+Several steps (`correlation`, `effective_num_test`, `risk_score`, `dawn`) support the `-d` / `--domain_list` argument to filter categories by GENCODE domain. Available options:
+
+| Option | Description |
+| --- | --- |
+| `run_all` | Test all available domain options |
+| `all` | Include all domains (default) |
+| `coding` | Coding regions |
+| `noncoding` | Non-coding regions |
+| `ptv` | Protein-truncating variants |
+| `missense` | Missense variants |
+| `damaging_missense` | Damaging missense variants |
+| `promoter` | Promoter regions |
+| `noncoding_wo_promoter` | Non-coding regions without promoter |
+| `splice` | Splice site regions |
+| `intron` | Intronic regions |
+| `intergenic` | Intergenic regions |
+| `3primeutr` | 3' UTR |
+| `5primeutr` | 5' UTR |
+| `utr` | UTR regions |
+| `lincRNA` | Long intergenic non-coding RNA |
