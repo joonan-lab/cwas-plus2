@@ -78,21 +78,11 @@ Due to the sizes of BigWig files for conservation scores, you must install them 
 
 We recomment using _[conda virtual environment](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html)_ to build environment for CWAS. Installing CWAS-Plus within a conda environment will prevent its installation in the global environment. When creating a conda environment, also install Python to enable local installations using pip. We recommend installing R too. Run the following statements in your shell.
 
-##### pip
-
 ```bash
 conda create -n cwas python=3.10 r-base=4.2.2
 conda activate cwas
-pip install cwas
-```
-
-##### github
-
-```bash
-conda create -n cwas python=3.10 r-base=4.2.2
-conda activate cwas
-git clone https://github.com/joonan-lab/cwas.git
-cd cwas
+git clone https://github.com/joonan30/cwas-plus2.git
+cd cwas-plus2
 pip install .
 ```
 
