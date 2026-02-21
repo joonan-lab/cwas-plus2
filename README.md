@@ -79,12 +79,15 @@ Due to the sizes of BigWig files for conservation scores, you must install them 
 We recomment using _[conda virtual environment](https://docs.conda.io/projects/conda/en/latest/user-guide/tasks/manage-environments.html)_ to build environment for CWAS. Installing CWAS-Plus within a conda environment will prevent its installation in the global environment. When creating a conda environment, also install Python to enable local installations using pip. We recommend installing R too. Run the following statements in your shell.
 
 ```bash
-conda create -n cwas python=3.10 r-base=4.2.2
+conda create -n cwas python r-base
 conda activate cwas
 git clone https://github.com/joonan30/cwas-plus2.git
 cd cwas-plus2
 pip install .
 ```
+
+- Python >=3.9, <3.13 is required.
+- R is required for the `risk_score` and `dawn` steps (via `rpy2`).
 
 
 In addition, you must install _[Variant Effect Predictor (VEP)](https://www.ensembl.org/vep)_ unless you plan to use the `--docker-mode` option in the annotation step.
