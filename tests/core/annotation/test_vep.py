@@ -101,31 +101,13 @@ def create_vep_dir(
     vep_dir, vep_conserv, vep_loftee, vep_msdb, vep_ances, vep_gerp
 ):
     vep_dir.mkdir()
-    #create_vep_conserv(vep_conserv)
-    #create_misdb(vep_msdb)
     Path(vep_conserv).touch()
     Path(vep_msdb).touch()
     Path(vep_loftee).mkdir()
     Path(vep_ances).touch()
     Path(vep_gerp).touch()
-    print("[TEST] Temporary VEP directory has created.")
     yield
     Path(vep_loftee).rmdir()
     for f in vep_dir.glob("*"):
         f.unlink()
     vep_dir.rmdir()
-    print("[TEST] Temporary VEP directory has deleted.")
-
-#def test_cmd_for_bw_custom_annotation(vep_path, input_vcf_path, annotation_dir):
-#    vep_inst = VepCmdGenerator(vep_path, input_vcf_path)
-#    bw_paths = [
-#        (bw_path, f"test{i + 1}")
-#        for i, bw_path in enumerate(annotation_dir.glob("*.bw"))
-#    ]
-#    for bw_path, bw_key in bw_paths:
-#        vep_inst.add_bw_custom_annotation(str(bw_path), bw_key)
-
-#    for bw_path, bw_key in bw_paths:
-#        assert (
-#            f"--custom {bw_path},{bw_key},bigwig,overlap,0" in vep_inst.cmd_str
-#        )

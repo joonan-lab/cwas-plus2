@@ -62,3 +62,28 @@ def test_check_num_proc():
         check.check_num_proc(0)
     with pytest.raises(ValueError):
         check.check_num_proc(max_num_proc + 1)
+
+
+def test_check_same_n_lines_same(tmp_path):
+    f1 = tmp_path / "a.txt"
+    f2 = tmp_path / "b.txt"
+    f1.write_text("line1\nline2\nline3\n")
+    f2.write_text("lineA\nlineB\nlineC\n")
+    # Should not raise
+    check.check_same_n_lines([f1, f2])
+
+
+def test_check_same_n_lines_different(tmp_path):
+    f1 = tmp_path / "a.txt"
+    f2 = tmp_path / "b.txt"
+    f1.write_text("line1\nline2\n")
+    f2.write_text("lineA\nlineB\nlineC\n")
+    with pytest.raises(ValueError, match="different number of lines"):
+        check.check_same_n_lines([f1, f2])
+
+
+def test_check_same_n_lines_single_file(tmp_path):
+    f1 = tmp_path / "a.txt"
+    f1.write_text("line1\n")
+    # Single file should always pass
+    check.check_same_n_lines([f1])

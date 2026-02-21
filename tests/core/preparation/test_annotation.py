@@ -7,6 +7,7 @@ import random
 from pathlib import Path
 
 import cwas.core.preparation.annotation as annotation
+import numpy as np
 import pytest
 from cwas.utils.cmd import compress_using_bgzip, index_using_tabix
 
@@ -183,6 +184,30 @@ def test_merge_bed_files(cwas_workspace, bed_gz_paths, output_coordinates):
             assert expected_line == line.strip()
 
     result_bed_path.unlink()
+
+
+# --- _one_hot_to_int unit tests ---
+
+def test_one_hot_to_int_all_zeros():
+    one_hot = np.array([0, 0, 0])
+    assert annotation._one_hot_to_int(one_hot) == 0
+
+
+def test_one_hot_to_int_single_bit():
+    assert annotation._one_hot_to_int(np.array([1, 0, 0])) == 1
+    assert annotation._one_hot_to_int(np.array([0, 1, 0])) == 2
+    assert annotation._one_hot_to_int(np.array([0, 0, 1])) == 4
+
+
+def test_one_hot_to_int_multiple_bits():
+    assert annotation._one_hot_to_int(np.array([1, 1, 0])) == 3
+    assert annotation._one_hot_to_int(np.array([1, 0, 1])) == 5
+    assert annotation._one_hot_to_int(np.array([1, 1, 1])) == 7
+
+
+def test_one_hot_to_int_lsb_order():
+    # Index 0 is least significant bit
+    assert annotation._one_hot_to_int(np.array([1, 1, 0, 1])) == 11  # 0b1011
 
 
 def test_merge_bed_files_multiprocessing(

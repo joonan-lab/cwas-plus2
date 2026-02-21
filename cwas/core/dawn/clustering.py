@@ -1,13 +1,12 @@
 from sklearn.metrics import silhouette_score
 import rpy2.robjects as robjects
 from rpy2.robjects import pandas2ri
+from rpy2.robjects.conversion import localconverter
 from rpy2.robjects.packages import importr
 from scipy.spatial.distance import pdist, squareform
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
-
-pandas2ri.activate()
 
 class kmeans_cluster:
     def __init__(self, tsne_out: pd.DataFrame, seed: int) -> None:
@@ -42,8 +41,8 @@ class kmeans_cluster:
         return opt_k
     
     def _avg_sil(self, k):
-        pandas2ri.activate()
-        km_res = self.kmeans_r(np.array(self.tsne_out), centers=k, nstart=300, iter_max=100)
+        with localconverter(robjects.default_converter + pandas2ri.converter):
+            km_res = self.kmeans_r(np.array(self.tsne_out), centers=k, nstart=300, iter_max=100)
         km_res_dict = dict(zip(km_res.names, list(km_res)))
         distance_matrix = squareform(pdist(self.tsne_out))
         ss = silhouette_score(distance_matrix, km_res_dict['cluster'], metric='precomputed')
@@ -75,8 +74,9 @@ class kmeans_cluster:
     def center_init(self, k):
         self.set_seed(self.seed)
 
-        km_tsne = self.kmeans_r(self.tsne_out, centers=k, nstart=300, iter_max=100)
-        km_tsne_dict = dict(zip(km_tsne.names, list(km_tsne)))
+        with localconverter(robjects.default_converter + pandas2ri.converter):
+            km_tsne = self.kmeans_r(self.tsne_out, centers=k, nstart=300, iter_max=100)
+            km_tsne_dict = dict(zip(km_tsne.names, list(km_tsne)))
 
         km_tsne_cluster = [x - 1 for x in list(km_tsne_dict['cluster'])]
         km_tsne_centers = pd.DataFrame(km_tsne_dict['centers'][km_tsne_cluster], columns=["t-SNE1", "t-SNE2"])

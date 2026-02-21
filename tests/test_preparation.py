@@ -4,34 +4,12 @@ Test cwas.preparation
 import random
 from multiprocessing import cpu_count
 from pathlib import Path
-from typing import Tuple
-
 import pytest
 from cwas.env import Env
-from cwas.preparation import Preparation
 import cwas.cli
 import sys
 import yaml
 
-
-class PreparationMock(Preparation):
-    """Mocking the Preparation class"""
-    def _prepare_annotation(self) -> Tuple[Path, Path]:
-        log.print_progress("Data preprocessing to prepare CWAS annotation step")
-        with self.bed_key_list_path.open() as bed_key_list_file:
-            bed_key_list = yaml.safe_load(bed_key_list_file)
-
-        # Ensure bed_key_list is not None and contains the expected keys
-        if bed_key_list is None:
-            bed_key_list = {'functional_score': {}, 'functional_annotation': {}}
-        elif 'functional_score' not in bed_key_list or 'functional_annotation' not in bed_key_list:
-            raise KeyError("Missing keys in bed_key_list")
-
-        # Merge two dictionaries
-        bed_key_list = bed_key_list['functional_score'] | bed_key_list['functional_annotation']
-        merged_bed_path = self.workspace / "merged.bed.gz"
-        merged_bed_idx_path = self.workspace / "merged.bed.gz.tbi"
-        return merged_bed_path, merged_bed_idx_path
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -79,7 +57,6 @@ def remove_workspace(cwas_workspace: Path):
 def test_default_args():
     sys.argv = ['cwas', 'preparation']
     inst = cwas.cli.main()
-    #inst = PreparationMock.get_instance()
     assert getattr(inst, "num_proc") == 1
     assert getattr(inst, "force_overwrite") == 0
 
@@ -87,19 +64,16 @@ def test_parse_args():
     cpu = random.choice(range(1, cpu_count() + 1))
     sys.argv = ['cwas', 'preparation', "-p", str(cpu), "--force_overwrite"]
     inst = cwas.cli.main()
-    #inst = PreparationMock.get_instance(args)
     assert getattr(inst, "num_proc") == cpu
     assert getattr(inst, "force_overwrite") == 1
 
     sys.argv = ['cwas', 'preparation', "-p", str(cpu)]
     inst = cwas.cli.main()
-    #inst = PreparationMock.get_instance(args)
     assert getattr(inst, "num_proc") == cpu
     assert getattr(inst, "force_overwrite") == 0
 
     sys.argv = ['cwas', 'preparation', "--force_overwrite"]
     inst = cwas.cli.main()
-    #inst = PreparationMock.get_instance(args)
     assert getattr(inst, "num_proc") == 1
     assert getattr(inst, "force_overwrite") == 1
 
@@ -109,10 +83,8 @@ def test_parse_args_value_error():
     with pytest.raises(ValueError):
         sys.argv = ['cwas', 'preparation', *args]
         cwas.cli.main()
-        #PreparationMock.get_instance(args)
 
     args = ["-p", "0"]
     with pytest.raises(ValueError):
         sys.argv = ['cwas', 'preparation', *args]
         cwas.cli.main()
-        #PreparationMock.get
