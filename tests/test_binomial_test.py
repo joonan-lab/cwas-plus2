@@ -1,8 +1,6 @@
 import pandas as pd
 import pytest
 from cwas.binomial_test import BinomialTest
-import sys
-import cwas.cli
 from pathlib import Path
 import zarr
 import argparse
@@ -44,8 +42,6 @@ def adj_factor_other_sample_path():
 
 @pytest.fixture
 def binomial_test(cat_path, output_dir_path, sample_info_path, adj_factor_path):
-    # sys.argv = ['cwas', 'binomial_test', '-i', str(cat_path), '-s', str(sample_info_path), '-a', str(adj_factor_path)]
-    # binom_inst = cwas.cli.main()
     args = argparse.Namespace(num_proc=1,
                               cat_path=cat_path,
                               output_dir_path = output_dir_path,
@@ -67,8 +63,6 @@ def binomial_test(cat_path, output_dir_path, sample_info_path, adj_factor_path):
 
 @pytest.fixture
 def binomial_test_with_inconsistent_sample(cat_path, output_dir_path, sample_info_other_sample_path, adj_factor_other_sample_path):
-    # sys.argv = ['cwas', 'binomial_test', '-i', str(cat_path), '-s', str(sample_info_other_sample_path), '-a', str(adj_factor_other_sample_path)]
-    # binom_inst = cwas.cli.main()
     args = argparse.Namespace(num_proc=1, cat_path=cat_path,
                               output_dir_path = output_dir_path,
                               sample_info_path=str(sample_info_other_sample_path),
@@ -143,35 +137,26 @@ def test_ctrl_cnt(binomial_test):
 
 def test_case_variant_cnt(binomial_test):
     binomial_test._adjust_categorization_result()
-    assert list(binomial_test.case_variant_cnt) == [85.0, 29.8, 76.0, 63.800000000000004, 106.30000000000001, 24.8, 37.9, 86.9, 22.4, 72.6]
+    assert list(binomial_test.case_variant_cnt) == pytest.approx([85.0, 29.8, 76.0, 63.8, 106.3, 24.8, 37.9, 86.9, 22.4, 72.6])
 
 def test_ctrl_variant_cnt(binomial_test):
     binomial_test._adjust_categorization_result()
-    assert list(binomial_test.ctrl_variant_cnt) == [59.8, 121.9, 166.3, 279.1, 249.7, 125.5, 88.3, 149.0, 140.3, 147.1]
+    assert list(binomial_test.ctrl_variant_cnt) == pytest.approx([59.8, 121.9, 166.3, 279.1, 249.7, 125.5, 88.3, 149.0, 140.3, 147.1])
 
 def test_calculate_relative_risk(binomial_test):
     binomial_test._adjust_categorization_result()
     binomial_test.run()
-    expected_relative_risk1 = (85.0 / 3) / (59.8 / 3)  # a_b_c_d_e
-    expected_relative_risk2 = (29.8 / 3) / (121.9 / 3)  # b_c_d_e_f
-    expected_relative_risk3 = (76.0 / 3) / (166.3 / 3)  # c_d_e_f_g
-    expected_relative_risk4 = 0.22859190254389108 # (63.8 / 3) / (279.1 / 3)  # d_e_f_g_h
-    expected_relative_risk5 = 0.4257108530236284 # (106.3 / 3) / (249.7 / 3)  # e_f_g_h_i
-    expected_relative_risk6 = (24.8 / 3) / (125.5 / 3)  # f_g_h_i_j
-    expected_relative_risk7 = 0.42921857304643257 # (37.9 / 3) / (88.8 / 3)  # g_h_i_j_k
-    expected_relative_risk8 = (86.9 / 3) / (149.0 / 3)  # h_i_j_k_l
-    expected_relative_risk9 = 0.15965787598004272 # (22.4 / 3) / (140.8 / 3)  # i_j_k_l_m
-    expected_relative_risk10 = (72.6 / 3) / (147.1 / 3)  # j_k_l_m_n
-
-    assert binomial_test._result["Relative_Risk"].to_list() == [
-        expected_relative_risk1,
-        expected_relative_risk2,
-        expected_relative_risk3,
-        expected_relative_risk4,
-        expected_relative_risk5,
-        expected_relative_risk6,
-        expected_relative_risk7,
-        expected_relative_risk8,
-        expected_relative_risk9,
-        expected_relative_risk10,
+    expected_relative_risk = [
+        (85.0 / 3) / (59.8 / 3),    # a_b_c_d_e
+        (29.8 / 3) / (121.9 / 3),   # b_c_d_e_f
+        (76.0 / 3) / (166.3 / 3),   # c_d_e_f_g
+        (63.8 / 3) / (279.1 / 3),   # d_e_f_g_h
+        (106.3 / 3) / (249.7 / 3),  # e_f_g_h_i
+        (24.8 / 3) / (125.5 / 3),   # f_g_h_i_j
+        (37.9 / 3) / (88.3 / 3),    # g_h_i_j_k
+        (86.9 / 3) / (149.0 / 3),   # h_i_j_k_l
+        (22.4 / 3) / (140.3 / 3),   # i_j_k_l_m
+        (72.6 / 3) / (147.1 / 3),   # j_k_l_m_n
     ]
+
+    assert binomial_test._result["Relative_Risk"].to_list() == pytest.approx(expected_relative_risk)

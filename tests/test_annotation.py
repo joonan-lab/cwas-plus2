@@ -1,19 +1,12 @@
 """
-Test cwas.preparation
+Test cwas.annotation
 """
 import pytest
 import yaml
-from cwas.annotation import Annotation
 from cwas.env import Env
 import cwas.cli
 import sys
 
-
-class AnnotationMock(Annotation):
-    """Mocking the Annotation class"""
-
-    def run(self):
-        pass
 
 
 @pytest.fixture(scope="module")
@@ -81,9 +74,14 @@ def create_vcf_file(vcf_path):
         "FILTER",
         "INFO",
     )
-    # TODO: Add VCF entries (variants)
+    vcf_entries = [
+        ("chr1", "100", ".", "A", "T", ".", "PASS", "."),
+        ("chr2", "200", ".", "G", "C", ".", "PASS", "."),
+    ]
     with vcf_path.open("w") as vcf_file:
         print(*vcf_header, sep="\t", file=vcf_file)
+        for entry in vcf_entries:
+            print(*entry, sep="\t", file=vcf_file)
 
 @pytest.fixture(scope="module")
 def required_args(vcf_path, output_dir_path):

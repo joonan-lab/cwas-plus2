@@ -40,3 +40,35 @@ def test_create_factory():
 def test_create_factory_with_invalid_step():
     with pytest.raises(ValueError):
         cwas.factory.create("burden_test")
+
+
+def test_make_class_name_single_word():
+    assert cwas.factory.make_class_name("start") == "Start"
+    assert cwas.factory.make_class_name("configuration") == "Configuration"
+    assert cwas.factory.make_class_name("preparation") == "Preparation"
+
+
+def test_make_class_name_multi_word():
+    assert cwas.factory.make_class_name("effective_num_test") == "EffectiveNumTest"
+    assert cwas.factory.make_class_name("extract_variant") == "ExtractVariant"
+
+
+def test_cwas_factory_properties():
+    factory_inst = cwas.factory.create("categorization")
+    assert callable(factory_inst.argparser)
+    assert factory_inst.runnable is not None
+
+
+def test_create_nonexistent_module():
+    with pytest.raises(ValueError, match="does not support"):
+        cwas.factory.create("this_does_not_exist")
+
+
+def test_create_all_valid_steps():
+    # These steps should all resolve without error
+    for step in ["start", "configuration", "preparation", "annotation",
+                  "categorization", "binomial_test", "permutation_test",
+                  "extract_variant", "effective_num_test", "correlation"]:
+        factory_inst = cwas.factory.create(step)
+        assert factory_inst.argparser is not None
+        assert factory_inst.runnable is not None

@@ -43,15 +43,6 @@ def setup(cwas_workspace, bed_txt_path, bed_coordinates):
     create_bed_file(bed_txt_path, bed_coordinates)
 
 
-def create_bed_file(bed_txt_path, bed_coordinates):
-    with bed_txt_path.open("w") as bed_file:
-        for bed_coordinate in bed_coordinates:
-            print(*bed_coordinate, sep="\t", file=bed_file)
-
-    bed_gz_path = compress_using_bgzip(bed_txt_path)
-    _ = index_using_tabix(bed_gz_path)
-
-
 @pytest.fixture(scope="module", autouse=True)
 def teardown(cwas_workspace):
     yield
