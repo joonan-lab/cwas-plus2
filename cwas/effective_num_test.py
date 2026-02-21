@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 import numpy as np
 import pandas as pd
-from tqdm import tqdm
+
 from typing import Optional
 import re
 
@@ -13,6 +13,7 @@ from cwas.utils.log import print_progress, print_arg, print_log
 from cwas.core.common import DomainListMixin
 from cwas.runnable import Runnable
 from scipy.stats import norm
+from scipy.linalg import eigh as scipy_eigh
 from cwas.utils.check import check_is_file, check_is_dir
 from scipy.stats import binomtest
 import zarr
@@ -20,8 +21,6 @@ import zarr
 class EffectiveNumTest(DomainListMixin, Runnable):
     def __init__(self, args: argparse.Namespace):
         super().__init__(args)
-        self._intersection_matrix = None
-        self._correlation_matrix = None
         self._category_set_path = None
         self._category_set = None
         self._num_eig = None
@@ -76,24 +75,6 @@ class EffectiveNumTest(DomainListMixin, Runnable):
         return category_count_
 
     @property
-    def intersection_matrix(self) -> pd.DataFrame:
-        if self._intersection_matrix is None and self.input_format == 'inter':
-            root = zarr.open(self.input_path, mode='r')
-            self._intersection_matrix = pd.DataFrame(data=root['data'],
-                              index=root['metadata'].attrs['category'],
-                              columns=root['metadata'].attrs['category'])
-        return self._intersection_matrix
-
-    @property
-    def correlation_matrix(self) -> pd.DataFrame:
-        if self._correlation_matrix is None and self.input_format == 'corr':
-            root = zarr.open(self.input_path, mode='r')
-            self._correlation_matrix = pd.DataFrame(data=root['data'],
-                              index=root['metadata'].attrs['category'],
-                              columns=root['metadata'].attrs['category'])
-        return self._correlation_matrix
-
-    @property
     def sample_info_path(self) -> Optional[Path]:
         return self.args.sample_info_path.resolve()
 
@@ -127,7 +108,7 @@ class EffectiveNumTest(DomainListMixin, Runnable):
     def num_eig(self) -> int:
         if self._num_eig is None:
             self._num_eig = self.args.num_eig
-            return self._num_eig
+        return self._num_eig
 
     @property
     def category_set_path(self) -> Optional[Path]:
@@ -200,12 +181,11 @@ class EffectiveNumTest(DomainListMixin, Runnable):
             self.eigen_decomposition(save_vecs=False)
             
         root = zarr.open(Path(str(self.eig_val_path).replace('.eig_vals', f'{file_extension}.eig_vals')), mode='r')
-        eig_vals = root['data']
-        
+        eig_vals = np.array(root['data'])
+
         e = 1e-12
-        eig_vals = sorted(eig_vals, key=np.linalg.norm, reverse=True)
-        num_eig_val = self.num_eig
-        clean_eig_vals = np.array(eig_vals[:num_eig_val])
+        eig_vals = np.sort(np.abs(eig_vals))[::-1]  # sort by magnitude, descending
+        clean_eig_vals = eig_vals[:self.num_eig]
         clean_eig_vals = clean_eig_vals[clean_eig_vals >= e]
         clean_eig_val_total_sum = np.sum(clean_eig_vals)
         clean_eig_val_sum = 0
@@ -225,64 +205,102 @@ class EffectiveNumTest(DomainListMixin, Runnable):
     def eigen_decomposition(self, save_vecs: bool = True):
         print_progress(f"Calculate eigen values")
         file_extension = '' if self._domain == 'all' else f'.{self._domain}'
+
+        # Get category names directly from zarr metadata (avoids loading full matrix into pandas)
+        root = zarr.open(self.input_path, mode='r')
+        all_categories = list(root['metadata'].attrs['category'])
+
         if self.category_set_path:
             c1 = self.category_set["Category"].tolist()
         else:
-            if self.input_format == 'corr':
-                c1 = self.correlation_matrix.columns.tolist()
-            elif self.input_format == 'inter':
-                c1 = self.intersection_matrix.columns.tolist()
+            c1 = all_categories
 
         print_progress(f"Categories with at least {self.count_thres} counts will be used")
         c2 = self.category_count[self.category_count['Raw_counts'] >= self.count_thres]['Category'].tolist()
-        
+
         filtered_combs1 = [x for x in c1 if x in c2]
         if self._domain != 'all':
             filtered_combs2 = self.category_set.loc[self.category_set['is_'+self._domain]==1]["Category"]
         else:
             filtered_combs2 = pd.Series(filtered_combs1)
         filtered_combs = list(set(filtered_combs1) & set(filtered_combs2))
-        
+
+        # Filter to only categories present in the matrix
+        all_categories_set = set(all_categories)
+        filtered_combs = [c for c in filtered_combs if c in all_categories_set]
+
         print_progress(f"Use # of categories: {len(filtered_combs)}")
 
-        if self.input_format == 'corr':
-            intermediate_mat = self.correlation_matrix.loc[filtered_combs,filtered_combs]
-        elif self.input_format == 'inter':
+        # Build index mapping for efficient numpy submatrix extraction
+        cat_to_idx = {cat: i for i, cat in enumerate(all_categories)}
+        indices = sorted([cat_to_idx[c] for c in filtered_combs])
+        filtered_combs = [all_categories[i] for i in indices]
+        idx = np.array(indices)
+
+        # Load submatrix using numpy indexing (avoids pandas DataFrame overhead)
+        print_progress("Loading submatrix from zarr")
+        full_data = root['data'][:]
+        intermediate_mat = full_data[np.ix_(idx, idx)]
+        del full_data
+
+        if self.input_format == 'inter':
             print_progress("Generating a covariance matrix")
-            intermediate_mat = self.intersection_matrix.loc[filtered_combs,filtered_combs]
-            intermediate_mat = intermediate_mat.mul((self.binom_p)*(1-self.binom_p))
+            intermediate_mat = intermediate_mat * (self.binom_p * (1 - self.binom_p))
 
         domain_neg_lap_path = Path(str(self.neg_lap_path).replace('.neg_lap', f'{file_extension}.neg_lap'))
         if not os.path.isdir(domain_neg_lap_path):
             print_progress("Generating the negative laplacian matrix")
-            neg_lap = np.abs(intermediate_mat.values)
+            neg_lap = np.abs(intermediate_mat)
+            del intermediate_mat
             degrees = np.sum(neg_lap, axis=0)
-            for i in tqdm(range(neg_lap.shape[0])):
-                neg_lap[i, :] = neg_lap[i, :] / np.sqrt(degrees)
-                neg_lap[:, i] = neg_lap[:, i] / np.sqrt(degrees)
+            # Vectorized normalization: D^{-1/2} @ neg_lap @ D^{-1/2}
+            inv_sqrt_degrees = 1.0 / np.sqrt(degrees)
+            neg_lap *= inv_sqrt_degrees[np.newaxis, :]
+            neg_lap *= inv_sqrt_degrees[:, np.newaxis]
             print_progress("Writing the negative laplacian matrix to file")
-            root = zarr.open(domain_neg_lap_path, mode='w')
-            root.create_dataset('data', data=neg_lap, dtype='float64')
+            root_out = zarr.open(domain_neg_lap_path, mode='w')
+            root_out.create_dataset('data', data=neg_lap, dtype='float64')
         else:
-            root = zarr.open(domain_neg_lap_path, mode='r')
-            neg_lap = root['data']
+            del intermediate_mat
+            root_neg = zarr.open(domain_neg_lap_path, mode='r')
+            neg_lap = np.array(root_neg['data'])
 
         domain_eig_val_path = Path(str(self.eig_val_path).replace('.eig_vals', f'{file_extension}.eig_vals'))
         domain_eig_vec_path = Path(str(self.eig_vec_path).replace('.eig_vecs', f'{file_extension}.eig_vecs'))
-        if not os.path.isdir(domain_eig_val_path) or not os.path.isdir(domain_eig_vec_path):
-            print_progress("Calculating the eigenvalues of the negative laplacian matrix")
-            eig_vals, eig_vecs = np.linalg.eig(neg_lap)
+        if not os.path.isdir(domain_eig_val_path) or (save_vecs and not os.path.isdir(domain_eig_vec_path)):
+            n = neg_lap.shape[0]
+            k = min(self.num_eig, n)
+
+            if k <= 0:
+                raise ValueError(f"Number of eigenvalues to compute must be > 0, got k={k} (num_eig={self.num_eig}, n={n})")
+
+            if k < n:
+                # Compute only top-k eigenvalues of the symmetric matrix
+                print_progress(f"Calculating top {k} eigenvalues (out of {n}) using eigh with subset_by_index")
+                if save_vecs:
+                    eig_vals, eig_vecs = scipy_eigh(neg_lap, subset_by_index=[n - k, n - 1])
+                else:
+                    eig_vals = scipy_eigh(neg_lap, subset_by_index=[n - k, n - 1], eigvals_only=True)
+            else:
+                # Compute all eigenvalues using symmetric eigen-decomposition
+                print_progress(f"Calculating all {n} eigenvalues using eigh")
+                if save_vecs:
+                    eig_vals, eig_vecs = np.linalg.eigh(neg_lap)
+                else:
+                    eig_vals = np.linalg.eigvalsh(neg_lap)
+
+            del neg_lap
+
             print_progress("Writing the eigenvalues to file")
-            
-            root = zarr.open(domain_eig_val_path, mode='w')
-            root.create_dataset('data', data=eig_vals, dtype='float64')
+            root_out = zarr.open(domain_eig_val_path, mode='w')
+            root_out.create_dataset('data', data=eig_vals, dtype='float64')
 
             if save_vecs:
                 print_progress("Writing the eigenvectors to file")
-                root = zarr.open(domain_eig_vec_path, mode='w')
-                root.create_group('metadata')
-                root['metadata'].attrs['category'] = filtered_combs
-                root.create_dataset('data', data=eig_vecs.real, chunks=(1000, 1000), dtype='float64')
+                root_out = zarr.open(domain_eig_vec_path, mode='w')
+                root_out.create_group('metadata')
+                root_out['metadata'].attrs['category'] = filtered_combs
+                root_out.create_dataset('data', data=eig_vecs, chunks=(1000, 1000), dtype='float64')
                 
     def update_env(self):
         self.set_env("N_EFFECTIVE_TEST", self.eff_num_test_value)
