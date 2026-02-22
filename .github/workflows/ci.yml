@@ -27,6 +27,8 @@ jobs:
         sudo apt-get install -y tabix
         python -m pip install --upgrade pip
         pip install build flake8 pytest
+        pip install numpy
+        pip install --no-build-isolation glmnet
         pip install .
     - name: Lint with flake8
       run: |
