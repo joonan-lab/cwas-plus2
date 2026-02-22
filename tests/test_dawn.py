@@ -1,8 +1,5 @@
 """
 Test cwas.dawn
-
-Note: Dawn.__init__ calls importr('stats').kmeans, which requires R.
-Tests are skipped if R is unavailable.
 """
 import argparse
 
@@ -11,30 +8,13 @@ import pytest
 from pathlib import Path
 
 
-def _can_import_dawn():
-    """Check if cwas.dawn can be imported (requires rpy2, igraph, scanpy)."""
-    try:
-        import cwas.dawn  # noqa: F401
-        return True
-    except Exception:
-        return False
-
-
-requires_dawn = pytest.mark.skipif(
-    not _can_import_dawn(),
-    reason="cwas.dawn dependencies not available (rpy2/igraph/scanpy)",
-)
-
-
-@requires_dawn
 def test_import():
-    """Module can be imported when rpy2 is available."""
+    """Module can be imported."""
     import cwas.dawn  # noqa: F401
 
 
-@requires_dawn
 class TestDawnInstance:
-    """Tests that require R to instantiate Dawn."""
+    """Tests that instantiate Dawn."""
 
     @staticmethod
     def _make_args(**overrides):

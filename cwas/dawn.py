@@ -12,7 +12,7 @@ import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 from sklearn.manifold import TSNE
-from rpy2.robjects.packages import importr
+from sklearn.cluster import KMeans
 from tqdm import tqdm
 from scipy.stats import norm
 import random
@@ -34,7 +34,6 @@ class Dawn(Runnable):
         self._permut_test = None
         self._category_set = None
         self._k_val = None
-        self.kmeans_r = importr('stats').kmeans
         self._k_for_leiden = None
 
     @staticmethod
@@ -270,8 +269,15 @@ class Dawn(Runnable):
         i_init_pt = km_cluster.center_init(self.k_val)
 
         # initial centers of clusters are given
-        fit = self.kmeans_r(self._U_norm, centers=self._U_norm[i_init_pt,], iter_max=100)
-        fit_res = dict(zip(fit.names, list(fit)))
+        init_centers = self._U_norm[i_init_pt,]
+        km = KMeans(n_clusters=self.k_val, init=init_centers, n_init=1, max_iter=100, random_state=self.seed)
+        km.fit(self._U_norm)
+
+        # Convert to 1-indexed to match downstream expectations (supernodeWGS)
+        fit_res = {
+            'cluster': [int(x) + 1 for x in km.labels_],
+            'centers': km.cluster_centers_,
+        }
         fit_res['annotation'] = self.category_set
         self._fit_res = fit_res
         
