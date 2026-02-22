@@ -164,7 +164,7 @@ def test_lassocv_ground_truth_recovery():
 
     cv = PredefinedSplit(foldid)
 
-    lasso = LassoCV(cv=cv, alphas=100, random_state=42)
+    lasso = LassoCV(cv=cv, n_alphas=100, random_state=42)
     lasso.fit(X, y)
 
     # Evaluate

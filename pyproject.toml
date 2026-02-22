@@ -47,7 +47,7 @@ adjusttext = "^0.8"
 statsmodels = "^0.14.1"
 scanpy = "^1.10.1"
 glmnet = "^2.2.1"
-setuptools = "^70.0.0"
+setuptools = ">=70.0.0,<75"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.2"
@@ -84,7 +84,7 @@ dependencies = [
     "statsmodels>=0.14.1",
     "scanpy>=1.10.1",
     "glmnet>=2.2.1",
-    "setuptools>=70.0.0",
+    "setuptools>=70.0.0,<75",
 ]
 
 [project.scripts]
