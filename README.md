@@ -87,7 +87,6 @@ pip install .
 ```
 
 - Python >=3.9, <3.13 is required.
-- R is required for the `risk_score` and `dawn` steps (via `rpy2`).
 
 
 In addition, you must install _[Variant Effect Predictor (VEP)](https://www.ensembl.org/vep)_ unless you plan to use the `--docker-mode` option in the annotation step.

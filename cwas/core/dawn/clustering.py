@@ -1,8 +1,5 @@
 from sklearn.metrics import silhouette_score
-import rpy2.robjects as robjects
-from rpy2.robjects import pandas2ri
-from rpy2.robjects.conversion import localconverter
-from rpy2.robjects.packages import importr
+from sklearn.cluster import KMeans
 from scipy.spatial.distance import pdist, squareform
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -14,8 +11,6 @@ class kmeans_cluster:
         
         self._tsne_out = tsne_out
         self._seed = seed
-        self.kmeans_r = importr('stats').kmeans
-        self.set_seed = robjects.r('set.seed')
 
     @property
     def tsne_out(self) -> pd.DataFrame:
@@ -29,8 +24,6 @@ class kmeans_cluster:
         start, end = list(map(int, k_range.replace(" ", "").split(",")))
         k_values = list(range(start, end+1))
 
-        self.set_seed(self.seed)
-
         avg_sil_values = list(map(self._avg_sil, k_values))
         df = pd.DataFrame({"k_values": k_values, "avg_sil_values": avg_sil_values})
         self.avg_sil_df = df
@@ -41,11 +34,10 @@ class kmeans_cluster:
         return opt_k
     
     def _avg_sil(self, k):
-        with localconverter(robjects.default_converter + pandas2ri.converter):
-            km_res = self.kmeans_r(np.array(self.tsne_out), centers=k, nstart=300, iter_max=100)
-        km_res_dict = dict(zip(km_res.names, list(km_res)))
+        km = KMeans(n_clusters=k, n_init=300, max_iter=100, random_state=self.seed)
+        labels = km.fit_predict(np.array(self.tsne_out))
         distance_matrix = squareform(pdist(self.tsne_out))
-        ss = silhouette_score(distance_matrix, km_res_dict['cluster'], metric='precomputed')
+        ss = silhouette_score(distance_matrix, labels, metric='precomputed')
 
         return ss
     
@@ -72,14 +64,11 @@ class kmeans_cluster:
 
 
     def center_init(self, k):
-        self.set_seed(self.seed)
+        km = KMeans(n_clusters=k, n_init=300, max_iter=100, random_state=self.seed)
+        km.fit(self.tsne_out)
 
-        with localconverter(robjects.default_converter + pandas2ri.converter):
-            km_tsne = self.kmeans_r(self.tsne_out, centers=k, nstart=300, iter_max=100)
-            km_tsne_dict = dict(zip(km_tsne.names, list(km_tsne)))
-
-        km_tsne_cluster = [x - 1 for x in list(km_tsne_dict['cluster'])]
-        km_tsne_centers = pd.DataFrame(km_tsne_dict['centers'][km_tsne_cluster], columns=["t-SNE1", "t-SNE2"])
+        km_tsne_cluster = km.labels_.tolist()  # already 0-indexed
+        km_tsne_centers = pd.DataFrame(km.cluster_centers_[km_tsne_cluster], columns=["t-SNE1", "t-SNE2"])
         dist_to_center_tsne = np.sqrt(np.sum((self.tsne_out - km_tsne_centers)**2, axis=1))
 
         self.km_tsne_cluster_ = km_tsne_cluster

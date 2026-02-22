@@ -1,8 +1,5 @@
 """
 Test cwas.risk_score
-
-Note: RiskScore.__init__ calls importr("glmnet"), which requires R and the
-glmnet package. Tests that need an instance are skipped if R is unavailable.
 """
 import argparse
 
@@ -11,35 +8,17 @@ import pytest
 from pathlib import Path
 
 
-def _has_rpy2_glmnet():
-    """Check if rpy2 and R's glmnet package are available."""
-    try:
-        from rpy2.robjects.packages import importr
-        importr("glmnet")
-        return True
-    except Exception:
-        return False
-
-
-requires_r = pytest.mark.skipif(
-    not _has_rpy2_glmnet(),
-    reason="rpy2 + R glmnet not available",
-)
-
-
 # --- Tests that don't need an instance ---
 
-@requires_r
 def test_import():
-    """Module can be imported when rpy2 is available."""
+    """Module can be imported."""
     import cwas.risk_score  # noqa: F401
 
 
 # --- Tests that need a RiskScore instance ---
 
-@requires_r
 class TestRiskScoreInstance:
-    """Tests that require R + glmnet to instantiate RiskScore."""
+    """Tests that instantiate RiskScore."""
 
     @staticmethod
     def _make_args(**overrides):
@@ -116,31 +95,6 @@ class TestRiskScoreInstance:
         inst = self._make_inst(feature_selection_group="invalid_group")
         with pytest.raises(ValueError, match="Invalid feature selection group"):
             _ = inst.feature_selection_group
-
-    # --- _custom_cv_folds ---
-
-    def test_custom_cv_folds_shape(self):
-        inst = self._make_inst(fold=5)
-        foldid = inst._custom_cv_folds(100, seed=42)
-        assert len(foldid) == 100
-
-    def test_custom_cv_folds_deterministic(self):
-        inst = self._make_inst(fold=5)
-        f1 = inst._custom_cv_folds(100, seed=42)
-        f2 = inst._custom_cv_folds(100, seed=42)
-        np.testing.assert_array_equal(f1, f2)
-
-    def test_custom_cv_folds_different_seeds(self):
-        inst = self._make_inst(fold=5)
-        f1 = inst._custom_cv_folds(100, seed=42)
-        f2 = inst._custom_cv_folds(100, seed=99)
-        assert not np.array_equal(f1, f2)
-
-    def test_custom_cv_folds_values(self):
-        inst = self._make_inst(fold=3)
-        foldid = inst._custom_cv_folds(30, seed=42)
-        # Values should be in range [0, fold]
-        assert set(foldid).issubset({0, 1, 2, 3})
 
     # --- Path property tests ---
 

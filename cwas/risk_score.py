@@ -2,18 +2,14 @@ import argparse
 import pandas as pd
 import numpy as np
 from pathlib import Path
-import rpy2.robjects as ro
-from rpy2.robjects import numpy2ri
-from rpy2.robjects.packages import importr
-from rpy2.rinterface_lib.embedded import RRuntimeError
-
 from sklearn.metrics import r2_score
+from glmnet import ElasticNet
 
 import cwas.utils.log as log
 from cwas.core.common import cmp_two_arr, DomainListMixin
 from cwas.utils.check import check_is_file, check_num_proc, check_is_dir
 from cwas.runnable import Runnable
-from typing import Optional, Tuple
+from typing import Optional
 from collections import defaultdict
 import matplotlib.pyplot as plt
 import re
@@ -43,7 +39,6 @@ class RiskScore(DomainListMixin, Runnable):
         self._result_dict = defaultdict(dict)
         self._permutation_dict = defaultdict(dict)
         self._filtered_combs = None
-        self.cv_glmnet = importr("glmnet").cv_glmnet
         self._annotation_dict = None
         self._feature_selection_group = None
         self._result_for_loop = defaultdict(dict)
@@ -139,15 +134,12 @@ class RiskScore(DomainListMixin, Runnable):
     def feature_selection_group(self) -> str:
         if self._feature_selection_group is None:
             allowed_values = ['gene_set', 'functional_score', 'functional_annotation']
-            # Split the input string by commas
             selected_features = [feature.strip().lower() for feature in self.args.feature_selection_group.split(',')]
-            # Check if all split values are in the allowed list
             if all(feature in allowed_values for feature in selected_features):
                 self._feature_selection_group = selected_features
-                return self._feature_selection_group
             else:
-                # Raise a ValueError if any value is not in the allowed list
                 raise ValueError(f"Invalid feature selection group. Allowed values are {', '.join(allowed_values)}.")
+        return self._feature_selection_group
 
     @property
     def tag(self) -> str:
@@ -295,7 +287,7 @@ class RiskScore(DomainListMixin, Runnable):
                                              sep="\t")
             if not cmp_two_arr(self.sample_ids, self._adj_factor.index.values):
                 raise ValueError(
-                    "The sample IDs from the adjustment factor list are"
+                    "The sample IDs from the adjustment factor list are "
                     "not the same with the sample IDs "
                     "from the categorization result."
                 )
@@ -380,13 +372,14 @@ class RiskScore(DomainListMixin, Runnable):
 
         seeds = np.arange(self.seed, self.seed + self.num_reg * 10, 10)
         num_proc2 = len(seeds) if self.num_proc > len(seeds) else self.num_proc
-        pool = ProcessPoolExecutor(max_workers=num_proc2)
-        
+
         filtered_combs = self.filtered_category_set.loc[self.filtered_category_set['is_'+domain]==1]["Category"] if domain != 'all' else self.filtered_category_set['Category']
-        
+
         rare_categories, cov, test_cov, response, test_response = self._create_covariates(seed=self.seed,
                                                                                           swap_label=False,
                                                                                           filtered_combs=filtered_combs)
+        cov = np.asarray(cov, dtype=np.float64)
+        test_cov = np.asarray(test_cov, dtype=np.float64)
         _risk_score_per_category_ = partial(self._risk_score_per_category,
                                             swap_label = False,
                                             rare_categories = rare_categories,
@@ -395,19 +388,19 @@ class RiskScore(DomainListMixin, Runnable):
                                             response = response,
                                             test_response = test_response,
                                             filtered_combs = filtered_combs)
-        map_result = pool.map(_risk_score_per_category_, seeds)
-        self._result_dict[domain] = {key: value for x in map_result for key, value in x.items()}
+        with ProcessPoolExecutor(max_workers=num_proc2) as pool:
+            map_result = pool.map(_risk_score_per_category_, seeds)
+            self._result_dict[domain] = {key: value for x in map_result for key, value in x.items()}
         gc.collect()
             
     def permute_pvalues(self, domain):
-        """Run LassoCV to get permutated pvalues"""
+        """Run LASSO (glmnet) to get permuted p-values"""
         log.print_progress(self.permute_pvalues.__doc__)
-                    
+
         seeds = np.arange(self.seed, self.seed+self.n_permute)
-        pool = ProcessPoolExecutor(max_workers=self.num_proc)
 
         filtered_combs = self.filtered_category_set.loc[self.filtered_category_set['is_'+domain]==1]['Category'] if domain != 'all' else self.filtered_category_set['Category']
-        
+
         _risk_score_per_category_ = partial(self._risk_score_per_category,
                                             swap_label = True,
                                             rare_categories = None,
@@ -416,8 +409,9 @@ class RiskScore(DomainListMixin, Runnable):
                                             response = None,
                                             test_response = None,
                                             filtered_combs = filtered_combs)
-        map_result = list(tqdm(pool.map(_risk_score_per_category_, seeds), total=len(seeds), desc="Permutation p-values"))
-        self._permutation_dict[domain] = {key: value for x in map_result for key, value in x.items()}
+        with ProcessPoolExecutor(max_workers=self.num_proc) as pool:
+            map_result = list(tqdm(pool.map(_risk_score_per_category_, seeds), total=len(seeds), desc="Permutation p-values"))
+            self._permutation_dict[domain] = {key: value for x in map_result for key, value in x.items()}
         gc.collect()
     
     def _create_covariates(self, seed: int, swap_label: bool = False, filtered_combs = None):
@@ -455,7 +449,7 @@ class RiskScore(DomainListMixin, Runnable):
             
         filtered_combs_coords = filtered_combs.index.tolist()
         
-        if not self.adj_factor is None:
+        if self.adj_factor is not None:
             if self.use_n_carrier:
                 ctrl_categorization_result = (self.categorization_result.get_orthogonal_selection((ctrls_coords, filtered_combs_coords)) > 0).astype('uint8')
                 ctrl_adj_factors = self.adj_factor.iloc[ctrls_coords]['AdjustFactor'].values[:,np.newaxis]
@@ -498,70 +492,66 @@ class RiskScore(DomainListMixin, Runnable):
             log.print_progress(f"# of rare categories (Seed: {seed}): {len(rare_categories)}")
         
         gc.collect()
-        return rare_categories, numpy2ri.py2rpy(cov), numpy2ri.py2rpy(test_cov), response, test_response
-    
+        return rare_categories, cov, test_cov, response, test_response
+
     def _risk_score_per_category(self, seed: int, swap_label: bool = False, rare_categories = None, cov = None, test_cov = None, response = None, test_response = None, filtered_combs = None):
         """Lasso model selection"""
         output_dict = defaultdict(dict)
-        
+
         if swap_label:
             rare_categories, cov, test_cov, response, test_response = self._create_covariates(seed, swap_label, filtered_combs)
+            cov = np.asarray(cov, dtype=np.float64)
+            test_cov = np.asarray(test_cov, dtype=np.float64)
             
         if len(rare_categories) == 0:
             if not swap_label:
                 log.print_warn(f"There are no rare categories (Seed: {seed}).")
-            return
+            return output_dict
 
         y = np.where(response, 1., 0.)
         test_y = np.where(test_response, 1., 0.)
         
         if not (swap_label or self.do_each_one or self.leave_one_out):
-            log.print_progress(f"Running LassoCV (Seed: {seed})")
-        
-        try:
-            # Create a glmnet model
-            cvfit = self.cv_glmnet(x = cov,
-                                   y = ro.FloatVector(y),
-                                   alpha = 1,
-                                   foldid = numpy2ri.py2rpy(self._custom_cv_folds(len(response), seed)),
-                                   type_measure='deviance',
-                                   nlambda=100)
+            log.print_progress(f"Running LASSO (Seed: {seed})")
 
-            # Get the lambda with the minimum mean cross-validated error
-            opt_lambda = cvfit.rx2("lambda.min")[0]
-            # The index is 1-based.
-            lambda_values = np.array(cvfit.rx2("lambda"))
-            i_choose = np.where(lambda_values == opt_lambda)[0][0]
-            
-            # Get lasso coefficients
-            full_glmnet = cvfit.rx2("glmnet.fit")
-            beta_matrix = np.array(ro.r["as.matrix"](ro.r["coef"](full_glmnet, s=opt_lambda)))
-    
+        try:
+            # cv.glmnet with alpha=1 (pure LASSO), using the same Fortran code as R
+            # scoring='mean_squared_error' matches R's type.measure='deviance' for gaussian
+            model = ElasticNet(
+                alpha=1,
+                n_lambda=100,
+                min_lambda_ratio=1e-4,
+                n_splits=self.fold,
+                cut_point=0.0,
+                scoring='mean_squared_error',
+                random_state=seed,
+            )
+            model.fit(cov, y)
+
+            # Use lambda_max_ (= R's lambda.min) and explicitly index coef_path_
+            # to ensure coefs, predictions, and opt_lambda all reference the same lambda
+            opt_lambda = model.lambda_max_
+            idx = model.lambda_max_inx_
+
             rare_idx = filtered_combs.isin(rare_categories)
             opt_coeff = np.zeros(len(rare_idx))
-            
-            # beta_matrix includes the intercept term, resulting in one additional column compared to your original input data.
-            opt_coeff[rare_idx] = beta_matrix[1:, 0]
-                    
+            opt_coeff[rare_idx] = model.coef_path_[:, idx]
+
             n_select = np.sum(np.abs(opt_coeff) != 0.0)
-    
-            # Compute the predictive R-squared using the test set
-            predict_function = ro.r["predict"]
-            predicted_values = predict_function(full_glmnet, newx=test_cov)
-            predict_y = np.array(predicted_values)[:, i_choose]
+
+            # Predictions on test set at lambda_max_ (= R's lambda.min)
+            predict_y = model.predict(test_cov, lamb=np.array([opt_lambda]))
             rsq = r2_score(test_y, predict_y)
-    
+
             output_dict[seed] = [opt_lambda, rsq, n_select, opt_coeff]
 
-        except RRuntimeError as e:
-            # Check if the error code is 7777 and log a message
-            if 'error code 7777' in str(e):
-                log.print_warn("Skipping due to glmnet error (code 7777): All used predictors have zero variance")
+        except Exception as e:
+            if np.all(np.var(cov, axis=0) == 0):
+                log.print_warn("Skipping due to zero-variance predictors")
                 rare_idx = filtered_combs.isin(rare_categories)
                 opt_coeff = np.zeros(len(rare_idx))
                 output_dict[seed] = [np.nan, np.nan, np.nan, opt_coeff]
             else:
-                # Re-raise the exception if it's a different error
                 raise
 
         if not (swap_label or self.do_each_one or self.leave_one_out):
@@ -570,20 +560,6 @@ class RiskScore(DomainListMixin, Runnable):
         gc.collect()
         return output_dict    
         
-    def _custom_cv_folds(self, nobs: int, seed: int = 42) -> Tuple[np.ndarray, np.ndarray]:
-        """Customize k-fold cross-validation"""
-        np.random.seed(seed)
-        rand_idx = np.random.permutation(nobs)
-        foldid = np.repeat(0, nobs)
-        i=0
-        
-        while i<=self.fold:
-            idx_val = rand_idx[np.arange(nobs * (i - 1) / self.fold, nobs * i / self.fold, dtype=int)]
-            foldid[idx_val] = i
-            i+=1
-            
-        return foldid
-    
     def save_results(self, domain):
         """Save the results to a file """
         log.print_progress(self.save_results.__doc__)
@@ -646,7 +622,7 @@ class RiskScore(DomainListMixin, Runnable):
         # Set the font size
         plt.rcParams.update({'font.size': self.fontsize})
         
-        width, height = list(map(float, self.plotsize.replace("\s", "").split(",")))
+        width, height = list(map(float, self.plotsize.replace(" ", "").split(",")))
         
         # Set the figure size
         plt.figure(figsize=(width, height))

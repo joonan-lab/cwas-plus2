@@ -20,15 +20,6 @@ jobs:
       run: |
         sudo apt-get update
         sudo apt-get install -y build-essential libz-dev libbz2-dev liblzma-dev
-  
-    - name: Install R and dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y r-base libtirpc-dev
-        echo "R installed:"
-        R --version
-        export R_HOME=$(R RHOME)
-        echo "R_HOME set to $R_HOME"
 
     - name: Install dependencies
       run: |
@@ -36,6 +27,9 @@ jobs:
         sudo apt-get install -y tabix
         python -m pip install --upgrade pip
         pip install build flake8 pytest
+        pip install numpy "setuptools<60" wheel
+        pip install --no-build-isolation glmnet
+        pip install "setuptools>=70,<75"
         pip install .
     - name: Lint with flake8
       run: |
