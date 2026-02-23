@@ -425,6 +425,7 @@ cwas dawn -e /path/to/eig_vecs -c /path/to/corr_matrix -P /path/to/permutation_t
 | `-C`, `--count_threshold` | Minimum variant/sample count per category | 20 |
 | `-R`, `--corr_threshold` | Correlation threshold between clusters | 0.12 |
 | `-S`, `--size_threshold` | Minimum number of categories per cluster | 2 |
+| `--no-parsimonious` | Disable parsimonious K selection (use absolute silhouette max) | Enabled |
 | `-p`, `--num_proc` | Number of worker processes | 1 |
 | `-o_dir`, `--output_directory` | Directory where output file will be saved | `$CWAS_WORKSPACE` |
 

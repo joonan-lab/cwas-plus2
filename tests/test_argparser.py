@@ -226,6 +226,7 @@ def test_dawn_defaults():
         "-P", "/tmp/pt.txt.gz", "-c_count", "/tmp/cc.txt",
     ])
     assert args.seed == 42
+    assert args.parsimonious is True
     assert args.lambda_val == pytest.approx(5.25)
     assert args.count_threshold == 20
     assert args.corr_threshold == pytest.approx(0.12)
@@ -236,6 +237,16 @@ def test_dawn_defaults():
     assert args.num_proc == 1
     assert args.resolution == pytest.approx(1)
     assert args.leiden_clustering is None
+
+
+def test_dawn_no_parsimonious_flag():
+    parser = ap.dawn()
+    args = parser.parse_args([
+        "-e", "/tmp/ev.txt.gz", "-c", "/tmp/cm.pkl",
+        "-P", "/tmp/pt.txt.gz", "-c_count", "/tmp/cc.txt",
+        "--no-parsimonious",
+    ])
+    assert args.parsimonious is False
 
 
 # --- correlation ---

@@ -6,7 +6,6 @@ and then conducts DAWN analysis for the categorized DNM.
 '''
 
 import argparse
-from pathlib import Path
 import os, glob
 import pandas as pd
 import numpy as np
@@ -35,6 +34,7 @@ class Dawn(Runnable):
         self._category_set = None
         self._k_val = None
         self._k_for_leiden = None
+        self._km_cluster = None  # cached kmeans_cluster instance from optimal_k
 
     @staticmethod
     def _print_args(args: argparse.Namespace):
@@ -74,10 +74,6 @@ class Dawn(Runnable):
         return self.args.lambda_val
 
     @property
-    def input_dir_path(self) -> Path:
-        return self.args.input_dir_path
-    
-    @property
     def eig_vector_file(self):
         return self.args.eig_vector_file
     
@@ -99,7 +95,9 @@ class Dawn(Runnable):
         if self._corr_mat is None:
             root = zarr.open(self.corr_mat_file, mode='r')
             self._corr_mat = root['data']
-            column_indices = list(map(lambda x: root['metadata'].attrs['category'].index(x), self.category_set))
+            all_categories = root['metadata'].attrs['category']
+            cat_to_idx = {cat: i for i, cat in enumerate(all_categories)}
+            column_indices = [cat_to_idx[x] for x in self.category_set]
             self._corr_mat = self._corr_mat[column_indices][:, column_indices].astype(np.float64)
             # self._corr_mat = pd.DataFrame(self._corr_mat, index=self.category_set, columns=self.category_set)
             # self._corr_mat = self._corr_mat.loc[self.category_set, self.category_set].astype(np.float64)
@@ -132,11 +130,11 @@ class Dawn(Runnable):
             elif self.leiden_clustering is not None:
                 self._k_val = self._k_for_leiden
             else: # self.args.k_val is None
-                km_cluster = kmeans_cluster(self._tsne_out, self.seed)
+                self._km_cluster = kmeans_cluster(self._tsne_out, self.seed)
                 ## k 입력이 없으면 k_range 가지고 optimal k를 찾음, k_range는 default 값이 있으므로 user input이 없어도 적용됨
                 print_progress("K is not selected. Find the optimal K between the range ({})".format(self.k_range))
                 output_name = os.path.join(self.output_dir_path, "DAWN.{}_choose_K_silhouette_score_plot.pdf".format(self.tag)) # silhouette score plot (dawn output 1)
-                self._k_val = km_cluster.optimal_k(self.k_range, output_name)
+                self._k_val = self._km_cluster.optimal_k(self.k_range, output_name, parsimonious=self.parsimonious)
 
                 print_progress("Find the optimal K = {}".format(self._k_val))
                 print_arg("K for K-means clustering algorithm", self._k_val)            
@@ -145,6 +143,10 @@ class Dawn(Runnable):
     @property
     def seed(self):
         return self.args.seed
+
+    @property
+    def parsimonious(self):
+        return self.args.parsimonious
 
     @property
     def resolution(self) -> float:
@@ -250,9 +252,9 @@ class Dawn(Runnable):
         scale_factor = np.sqrt(np.sum(U_pick**2, axis=1))
         U_norm = scaler.fit_transform(U_pick.T / scale_factor).T
 
-        tsne_res = TSNE(n_components=2, 
+        tsne_res = TSNE(n_components=2,
                         perplexity=30,
-                        n_iter=500,
+                        max_iter=500,
                         random_state=self.seed,
                         init='pca',
                         method=self.tsne_method,
@@ -263,7 +265,11 @@ class Dawn(Runnable):
 
     def kmeans_clustering(self):
         random.seed(self.seed)
-        km_cluster = kmeans_cluster(self._tsne_out, self.seed)
+        # Reuse cached instance from optimal_k if available (has _best_km cached)
+        if self._km_cluster is not None:
+            km_cluster = self._km_cluster
+        else:
+            km_cluster = kmeans_cluster(self._tsne_out, self.seed)
 
         print_progress("K-means clustering with {} clusters.".format(self.k_val))
         i_init_pt = km_cluster.center_init(self.k_val)
@@ -312,11 +318,11 @@ class Dawn(Runnable):
                                                                                            self.count_threshold,
                                                                                            self.size_threshold)
         print_progress("[DAWN] Compute graph on correlation matrix and form graph")
-        form_data = data_collection(path=os.path.join(self.output_dir_path, "supernodeWGS_results", "blocks_"+self.tag),
-                                    cores=self.num_proc,
+        form_data = data_collection(cores=self.num_proc,
                                     max_cluster=self.k_val,
                                     verbose=True,
-                                    seed=self.seed)
+                                    seed=self.seed,
+                                    blocks=supernodeWGS_process.blocks)
         cor_mat = form_data.form_correlation(k=cluster_idx)
         g = supernodeWGS_process.form_graph_from_correlation(cor_mat,
                                                              func=lambda x: x>self.corr_threshold,

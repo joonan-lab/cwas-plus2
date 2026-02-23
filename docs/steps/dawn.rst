@@ -22,6 +22,7 @@ The users can investigate the relationship between categories and identify the s
   - -C, --count_threshold: The threshold of variant (or sample) counts. The least amount of variants a category should have. By default, 20.
   - -R, --corr_threshold: The threshold of correlation values between clusters. Computed by the mean value of correlation values of categories within a cluster. By default, 0.12.
   - -S, --size_threshold: The threshold of the number of categories per cluster. The least amount of categories a cluster should have. By default, 2.
+  - --no-parsimonious: Disable parsimonious K selection. By default, the smallest K within the top 5% silhouette plateau is selected (parsimonious mode). This flag reverts to picking the absolute silhouette maximum.
   - -p, --num_proc: Number of worker processes that will be used for the DAWN analysis. By default, 1.
 
 

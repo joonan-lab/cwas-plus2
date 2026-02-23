@@ -37,8 +37,10 @@ class supernodeWGS_func:
         self._output_dir_path = output_dir_path
         self._tag = tag
         self._clusters = None
+        self._cluster_member_indices = {}
         self._seed = seed
         self._verbose = verbose
+        self._blocks = {}  # in-memory block storage to avoid pickle I/O
 
     @property
     def corr_mat(self) -> pd.DataFrame:
@@ -67,8 +69,13 @@ class supernodeWGS_func:
     @property
     def clusters(self):
         if self._clusters is None:
-            clusters_ = list(self.fit_res['cluster'])
-        return clusters_
+            self._clusters = list(self.fit_res['cluster'])
+            # Pre-compute cluster membership indices
+            self._cluster_member_indices = {}
+            clusters_arr = np.array(self._clusters)
+            for c in np.unique(clusters_arr):
+                self._cluster_member_indices[c] = list(np.where(clusters_arr == c)[0])
+        return self._clusters
 
     @property
     def seed(self) -> int:
@@ -77,6 +84,10 @@ class supernodeWGS_func:
     @property
     def verbose(self) -> bool:
         return self._verbose
+
+    @property
+    def blocks(self) -> dict:
+        return self._blocks
 
     @property
     def supernodeDir(self):
@@ -91,17 +102,17 @@ class supernodeWGS_func:
     
     def corr_mat_blocks(self, i):
         idx = self._index_to_pair(i, self.max_cluster)
-        idx1 = list(np.where([x == idx[0] for x in self.clusters])[0])
-        idx2 = list(np.where([x == idx[1] for x in self.clusters])[0])
+        # Use pre-computed cluster membership indices
+        _ = self.clusters  # ensure clusters and indices are initialized
+        idx1 = self._cluster_member_indices[idx[0]]
+        idx2 = self._cluster_member_indices[idx[1]]
 
         #cor_block = self.corr_mat.iloc[idx1, idx2]
         cor_block = self.corr_mat[idx1][:, idx2]
         #cor_block.reset_index(drop=True, inplace=True)
 
-        file_dir = os.path.join(self.supernodeDir, '{}.pickle'.format(i))
-        #cor_block.to_pickle(file_dir)
-        with open(file_dir, 'wb') as pickle_file:
-            pickle.dump(cor_block, pickle_file)
+        # Store block in memory instead of writing to pickle
+        self._blocks[i] = cor_block
 
 
     def _index_to_pair(self, val, max_val=200):
@@ -288,15 +299,9 @@ class supernodeWGS_func:
 
 
     def _partial_likelihood_(self, b, c, graph_term, i_vec):
-        d = len(i_vec)
-            
-        def fv_fun(i):
-            new1 = np.exp(b * i_vec[i] + c * i_vec[i] * graph_term[i])
-            new2 = np.exp(b * (1 - i_vec[i]) + c * (1 - i_vec[i]) * graph_term[i])
-            fvalue = np.log(new1 / (new1 + new2))
-            return fvalue
-
-        return np.sum([fv_fun(i) for i in range(d)])
+        new1 = np.exp(b * i_vec + c * i_vec * graph_term)
+        new2 = np.exp(b * (1 - i_vec) + c * (1 - i_vec) * graph_term)
+        return np.sum(np.log(new1 / (new1 + new2)))
 
     def _optimize_bc(self, adj, i_vec, times, tol=1e-5, b_range=(-10, 10), c_range=(-10, 10)):
         b = 0
@@ -496,13 +501,14 @@ class supernodeWGS_func:
         
 
 class data_collection:
-    def __init__(self, path: str, cores: int, max_cluster=None, verbose=True, seed=42) -> None:
+    def __init__(self, path: str = None, cores: int = 1, max_cluster=None, verbose=True, seed=42, blocks: dict = None) -> None:
         self._path = path
         self._cores = cores
         self._verbose = verbose
         self._max_cluster = max_cluster
         self.seed = seed
-    
+        self._blocks = blocks  # in-memory blocks dict (if provided, bypasses file I/O)
+
     @property
     def path(self) -> str:
         return self._path
@@ -519,6 +525,13 @@ class data_collection:
     def verbose(self):
         return self._verbose
     
+    def _load_block(self, idx):
+        """Load a correlation block from in-memory dict or pickle file."""
+        if self._blocks is not None and idx in self._blocks:
+            return self._blocks[idx]
+        with open(os.path.join(self.path, "{}.pickle".format(idx)), 'rb') as pickle_file:
+            return pickle.load(pickle_file)
+
     def _pair_to_index_(self, idx1, idx2, max_val=200):
         assert isinstance(idx1, int) and isinstance(idx2, int), "idx1 and idx2 must be integers."
         assert (idx1 > 0) and (idx2 > 0) and (idx1 % 1 == 0) and (idx2 % 1 == 0),  "idx1 and idx2 must be positive integers."
@@ -530,8 +543,6 @@ class data_collection:
         return tmp + (j-i+1)
 
     def form_correlation(self, k=200):
-        pool = ProcessPoolExecutor(max_workers=self.cores)
-
         if isinstance(k, int):
             self.max_cluster = k
             num_node = k
@@ -540,18 +551,21 @@ class data_collection:
             assert self.max_cluster is not None
             idx_mat = list(itertools.combinations(list(np.arange(1,len(k)+1)), 2))
             combn_mat = [(k[x[0]-1], k[x[1]-1]) for x in idx_mat]
-            
+
         self._combn_mat = combn_mat.copy()
-        results = list(pool.map(self._cor_func_, range(len(combn_mat))))
+
+        if self._blocks is not None:
+            # In-memory blocks: sequential is faster than multiprocessing overhead
+            results = [self._cor_func_(i) for i in range(len(combn_mat))]
+        else:
+            with ProcessPoolExecutor(max_workers=self.cores) as pool:
+                results = list(pool.map(self._cor_func_, range(len(combn_mat))))
 
         return results
 
     def _cor_func_(self, i):
         idx = self._pair_to_index_(int(self._combn_mat[i][0]), int(self._combn_mat[i][1]), max_val=self.max_cluster)
-        cor_block = 0
-        with open(os.path.join(self.path, "{}.pickle".format(idx)), 'rb') as pickle_file:
-            cor_block = pickle.load(pickle_file)
-        #cor_block = pd.read_pickle(os.path.join(self.path, "{}.pickle".format(idx)))
+        cor_block = self._load_block(idx)
         return np.mean(cor_block)
     
     def form_testvec(self, vec, clustering=None, flag_vec=None, k=200, sparse=False, sumabsv=5.25):
@@ -561,13 +575,12 @@ class data_collection:
         self._k = k
         self._sparse = sparse
         self._sumabsv = sumabsv
-        
+
         assert len(vec) == len(clustering)
-        pool = ProcessPoolExecutor(max_workers=self.cores)
 
         if flag_vec is None:
             self._flag_vec = [False for i in range(len(vec))]
-        
+
         if isinstance(k, int): # k is integer
             cluster_vec = list(range(1, k+1))
             self.max_cluster = k
@@ -575,7 +588,12 @@ class data_collection:
             cluster_vec = k
             assert self.max_cluster is not None
 
-        res = pd.DataFrame(pool.map(self._test_func_, cluster_vec))
+        if self._blocks is not None:
+            # In-memory blocks: sequential is faster than multiprocessing overhead
+            res = pd.DataFrame([self._test_func_(i) for i in cluster_vec])
+        else:
+            with ProcessPoolExecutor(max_workers=self.cores) as pool:
+                res = pd.DataFrame(pool.map(self._test_func_, cluster_vec))
         return res
 
     def _test_func_(self, i):
@@ -588,11 +606,7 @@ class data_collection:
         testvec = testvec[keep_idx]
 
         idx = self._pair_to_index_(int(i), int(i), max_val=self.max_cluster)
-        cor_block = 0
-        with open(os.path.join(self.path, "{}.pickle".format(idx)), 'rb') as pickle_file:
-            cor_block = pickle.load(pickle_file)
-        #cor_block = pd.read_pickle(os.path.join(self.path, "{}.pickle".format(idx)))
-        #cor_block = cor_block.iloc[keep_idx, keep_idx]
+        cor_block = self._load_block(idx)
         cor_block = cor_block[keep_idx][:, keep_idx]
 
         if len(cor_block)==0:
