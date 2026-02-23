@@ -25,12 +25,12 @@ class TestDawnInstance:
             permut_test_file=Path("/tmp/test.permutation_test.txt.gz"),
             category_count_file=Path("/tmp/catcount.txt"),
             output_dir_path=Path("/tmp/output"),
-            input_dir_path=Path("/tmp"),
             leiden_clustering=None,
             lambda_val=0.5,
-            k_range="2:10",
+            k_range="2,10",
             k_val=5,
             seed=42,
+            parsimonious=True,
             resolution=1.0,
             tsne_method="barnes_hut",
             tag="test",
@@ -107,5 +107,13 @@ class TestDawnInstance:
         assert inst.k_val == 8
 
     def test_k_range(self):
-        inst = self._make_inst(k_range="3:15")
-        assert inst.k_range == "3:15"
+        inst = self._make_inst(k_range="3,15")
+        assert inst.k_range == "3,15"
+
+    def test_parsimonious_default(self):
+        inst = self._make_inst()
+        assert inst.parsimonious is True
+
+    def test_parsimonious_disabled(self):
+        inst = self._make_inst(parsimonious=False)
+        assert inst.parsimonious is False

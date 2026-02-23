@@ -1064,6 +1064,15 @@ def dawn() -> argparse.ArgumentParser:
         help="Seed value for t-SNE (default: 42).",
     )
     optional.add_argument(
+        "--no-parsimonious",
+        dest="parsimonious",
+        action="store_false",
+        default=True,
+        help="Disable parsimonious K selection. By default, the smallest K\n"
+             "within the top 5%% silhouette plateau is selected. This flag\n"
+             "reverts to picking the absolute silhouette maximum.",
+    )
+    optional.add_argument(
         '-T',
         '--tsen_method',
         dest='tsne_method',
