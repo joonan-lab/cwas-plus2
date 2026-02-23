@@ -209,7 +209,9 @@ class BinomialTest(BurdenTest):
         xlabels = xticks.copy()
         xlabels[0] = '-Inf'
         xlabels[-1] = 'Inf'
-        yticks = [int(x) for x in np.arange(0, max(burden_res['-log_P']), 2)]
+        max_logp = burden_res.loc[burden_res['-log_P'] != np.inf, '-log_P']
+        max_y = np.trunc(max(max_logp)) + 2 if len(max_logp) > 0 else 2
+        yticks = [int(x) for x in np.arange(0, max_y + 1, 2)]
         ylabels = yticks.copy()
 
         def replace_inf(x, v):
@@ -223,27 +225,28 @@ class BinomialTest(BurdenTest):
         if self.tag != None:
             tags = self.tag.strip().split(",")
             for t in tags:
-                self._draw_single_volcano_plot(burden_res, max_x, threshold, eff_threshold, xticks, xlabels, yticks, ylabels, replace_inf, tag_name=t)
+                self._draw_single_volcano_plot(burden_res, max_x, max_y, threshold, eff_threshold, xticks, xlabels, yticks, ylabels, replace_inf, tag_name=t)
         else:
-            self._draw_single_volcano_plot(burden_res, max_x, threshold, eff_threshold, xticks, xlabels, yticks, ylabels, replace_inf)
+            self._draw_single_volcano_plot(burden_res, max_x, max_y, threshold, eff_threshold, xticks, xlabels, yticks, ylabels, replace_inf)
 
-    def _draw_single_volcano_plot(self, burden_res, max_x, threshold, eff_threshold, xticks, xlabels, yticks, ylabels, replace_inf, tag_name=None):
+    def _draw_single_volcano_plot(self, burden_res, max_x, max_y, threshold, eff_threshold, xticks, xlabels, yticks, ylabels, replace_inf, tag_name=None):
         fig, axes = plt.subplots(figsize=(self.plot_size, self.plot_size))
 
         plt.title(self.plot_title, fontsize=self.font_size, loc='left', pad=5)
-        axes.vlines(x=0, ymin=-0.5, ymax=max(burden_res['-log_P'])+0.5, linestyles='-', color='lightgray', linewidth=1.25, zorder=1)
-        axes.scatter(x=burden_res['log2_RR'].apply(lambda x: replace_inf(x, max_x)), y=burden_res['-log_P'],
+        axes.vlines(x=0, ymin=-0.5, ymax=max_y+0.5, linestyles='-', color='lightgray', linewidth=1.25, zorder=1)
+        axes.scatter(x=burden_res['log2_RR'].apply(lambda x: replace_inf(x, max_x)), y=burden_res['-log_P'].apply(lambda x: replace_inf(x, max_y)),
                     marker='o', color='silver', s=self.marker_size, label='Others' if tag_name else None, edgecolor='black', linewidth=0.5, zorder=2)
         if tag_name is not None:
-            axes.scatter(x=burden_res.loc[(burden_res.index.str.contains(tag_name))&(burden_res['-log_P']>threshold), 'log2_RR'],
-                         y=burden_res.loc[(burden_res.index.str.contains(tag_name))&(burden_res['-log_P']>threshold), '-log_P'],
+            tag_mask = (burden_res.index.str.contains(tag_name)) & (burden_res['-log_P'] > threshold)
+            axes.scatter(x=burden_res.loc[tag_mask, 'log2_RR'].apply(lambda x: replace_inf(x, max_x)),
+                         y=burden_res.loc[tag_mask, '-log_P'].apply(lambda x: replace_inf(x, max_y)),
                          marker='o', label=tag_name, facecolor='#3d62a1', s=self.marker_size, alpha=.7, edgecolor='black', linewidth=0.5, zorder=3)
         axes.hlines(y=threshold, xmin=-(max_x+1), xmax=max_x+1, linestyles='--', linewidth=1.25, color='black')
         axes.text(-(max_x+1)+0.1, threshold+0.1, 'P=0.05', size=self.font_size*0.85, color='black')
         if self.eff_test:
             axes.hlines(y=eff_threshold, xmin=-(max_x+1), xmax=max_x+1, linestyles='--', linewidth=1.25, color='red')
             axes.text(-(max_x+1)+0.1, eff_threshold+0.1, ''.join(['P=', str('%.2E' % Decimal(0.05/self.eff_test)),', eff_num=', format(self.eff_test, ',')]), size=self.font_size*0.85, color='red')
-        plt.ylim(-0.5, max(burden_res['-log_P'])+0.5)
+        plt.ylim(-0.5, max_y+0.5)
         plt.xlim(-(max_x+1), (max_x+1))
         plt.xlabel('Relative Risk ($log_{2}$)', size=self.font_size)
         plt.ylabel("P ($-log_{10}$)", size=self.font_size)
