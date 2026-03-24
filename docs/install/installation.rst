@@ -72,7 +72,7 @@ Users can instasll CWAS-Plus through pip or github. We recommend installing unde
 
 .. code-block:: solidity
     
-    conda create -n cwas python=3.10
+    conda create -n cwas python=3.11
     conda activate cwas
     pip install cwas
 
@@ -80,10 +80,11 @@ Users can instasll CWAS-Plus through pip or github. We recommend installing unde
 
 .. code-block:: solidity
 
-    conda create -n cwas python=3.10
+    conda create -n cwas python=3.11
     conda activate cwas
-    git clone https://github.com/joonan-lab/cwas.git
-    pip install cwas
+    git clone https://github.com/joonan30/cwas-plus2.git
+    cd cwas-plus2
+    pip install .
 
 
 To start CWAS-Plus, type the command below. This will create a workspace (``.cwas``) for CWAS-Plus in home directory. You can specify the directory that will be used as a working directory. As a default, ``$HOME/.cwas`` will be set. If you have a pre-installed VEP, this process will find it automatically and type it to the configuration file.
