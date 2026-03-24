@@ -6,10 +6,10 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = 'CWAS-Plus'
+project = 'CWAS-Plus2'
 copyright = '2025, Minwoo Jeong'
 author = 'Minwoo Jeong'
-release = '0.1.8'
+release = '0.2.1'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

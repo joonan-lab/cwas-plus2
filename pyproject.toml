@@ -13,9 +13,9 @@ maintainers = [
 ]
 license = "MIT"
 readme = "README.md"
-homepage = "https://cwas-plus.readthedocs.io/en/latest/"
+homepage = "https://cwas-plus2.readthedocs.io/en/latest/"
 repository = "https://github.com/joonan-lab/cwas-plus2"
-documentation = "https://cwas-plus.readthedocs.io/en/latest/"
+documentation = "https://cwas-plus2.readthedocs.io/en/latest/"
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
