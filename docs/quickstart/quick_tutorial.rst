@@ -10,16 +10,16 @@ This is a quick tutorial for CWAS-Plus. Specific descriptions of arguments are d
 ###########################################
 
   Users can install CWAS-Plus through pip or github. We recommend installing under conda environment to avoid global installation.
-  
+
+  A `Rust compiler <https://www.rust-lang.org/tools/install>`_ is required. Install it with: ``curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh``
+
   ``cwas start`` command creates a working directory (``-w``) along with a configuration file.
 
   .. code-block:: solidity
 
     conda create -n cwas python=3.11
     conda activate cwas
-    git clone https://github.com/joonan-lab/cwas-plus2.git
-    cd cwas-plus2
-    pip install .
+    pip install cwas-plus2
     cwas start
 
   Download example input.

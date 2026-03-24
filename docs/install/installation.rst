@@ -13,6 +13,12 @@ For CWAS-Plus to run, the users need to (1) install conda and Ensembl Variant Ef
 **1. Required installations**
 
 - **Conda**: CWAS-Plus install packages using conda environment. Please install conda or mamba.
+- **Rust**: A Rust compiler is required for building the high-performance categorization engine. Install it with:
+
+  .. code-block:: solidity
+
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
 - **VEP**: VEP is used for variant annotation. Please refer to the `reference <https://ensembl.org/info/docs/tools/vep/script/vep_download.html>`_ and install VEP.
 
 
