@@ -46,7 +46,7 @@ pyarrow = ">=13,<15"
 adjusttext = "^0.8"
 statsmodels = "^0.14.1"
 scanpy = "^1.10.1"
-python-glmnet-fix = "^2.2.2"
+python-glmnet-fix = "^2.2.3"
 setuptools = ">=70.0.0,<75"
 
 [tool.poetry.group.dev.dependencies]
@@ -83,7 +83,7 @@ dependencies = [
     "adjusttext>=0.8",
     "statsmodels>=0.14.1",
     "scanpy>=1.10.1",
-    "python-glmnet-fix>=2.2.2",
+    "python-glmnet-fix>=2.2.3",
     "setuptools>=70.0.0,<75",
 ]
 
