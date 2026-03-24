@@ -14,7 +14,7 @@ maintainers = [
 license = "MIT"
 readme = "README.md"
 homepage = "https://cwas-plus.readthedocs.io/en/latest/"
-repository = "https://github.com/joonan30/cwas-plus2"
+repository = "https://github.com/joonan-lab/cwas-plus2"
 documentation = "https://cwas-plus.readthedocs.io/en/latest/"
 classifiers = [
     "Programming Language :: Python :: 3",
@@ -53,7 +53,7 @@ setuptools = ">=70.0.0,<75"
 pytest = "^7.4.2"
 
 [tool.poetry.urls]
-"Bug Tracker" = "https://github.com/joonan30/cwas-plus2/issues"
+"Bug Tracker" = "https://github.com/joonan-lab/cwas-plus2/issues"
 
 [build-system]
 requires = ["maturin>=1.0,<2.0"]
