@@ -74,7 +74,7 @@ Users can instasll CWAS-Plus through pip or github. We recommend installing unde
     
     conda create -n cwas python=3.11
     conda activate cwas
-    pip install cwas
+    pip install cwas-plus2
 
 - Github
 
