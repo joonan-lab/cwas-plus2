@@ -90,13 +90,11 @@ This is an advanced tutorial for CWAS-Plus. Specific descriptions of arguments a
 
   .. code-block:: solidity
 
-    conda create -n cwas python r-base
+    conda create -n cwas python
     conda activate cwas
     git clone https://github.com/joonan30/cwas-plus2.git
     cd cwas-plus2
     pip install .
-
-  The installation of R package **glmnet** is also required for risk score analysis.
 
   CWAS-Plus requires a working directory for efficiency. Users can create the working directory through command below.
 
