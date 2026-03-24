@@ -88,6 +88,16 @@ This is an advanced tutorial for CWAS-Plus. Specific descriptions of arguments a
 
   Users can install CWAS-Plus through pip or github. We recommend installing under conda environment to avoid global installation.
 
+  A `Rust compiler <https://www.rust-lang.org/tools/install>`_ is required. Install it with: ``curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh``
+
+  .. code-block:: solidity
+
+    conda create -n cwas python=3.11
+    conda activate cwas
+    pip install cwas-plus2
+
+  Or install from source:
+
   .. code-block:: solidity
 
     conda create -n cwas python=3.11

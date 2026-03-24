@@ -94,10 +94,16 @@ cd cwas-plus2
 pip install .
 ```
 
+#### Requirements
+
 - Python >=3.9, <3.13 is required.
+- A [Rust compiler](https://www.rust-lang.org/tools/install) is required for building the high-performance categorization engine. Install it with:
 
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
 
-In addition, you must install _[Variant Effect Predictor (VEP)](https://www.ensembl.org/vep)_ unless you plan to use the `--docker-mode` option in the annotation step.
+- In addition, you must install _[Variant Effect Predictor (VEP)](https://www.ensembl.org/vep)_ unless you plan to use the `--docker-mode` option in the annotation step.
 
 ### CWAS Execution
 
