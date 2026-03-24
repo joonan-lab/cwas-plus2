@@ -96,6 +96,16 @@ This is an advanced tutorial for CWAS-Plus. Specific descriptions of arguments a
     conda activate cwas
     pip install cwas-plus2
 
+  Or install from source:
+
+  .. code-block:: solidity
+
+    conda create -n cwas python=3.11
+    conda activate cwas
+    git clone https://github.com/joonan-lab/cwas-plus2.git
+    cd cwas-plus2
+    pip install .
+
   CWAS-Plus requires a working directory for efficiency. Users can create the working directory through command below.
 
   .. code-block:: solidity
