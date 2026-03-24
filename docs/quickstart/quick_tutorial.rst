@@ -15,7 +15,7 @@ This is a quick tutorial for CWAS-Plus. Specific descriptions of arguments are d
 
   .. code-block:: solidity
 
-    conda create -n cwas python
+    conda create -n cwas python=3.11
     conda activate cwas
     git clone https://github.com/joonan30/cwas-plus2.git
     cd cwas-plus2
