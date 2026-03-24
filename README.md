@@ -1,6 +1,6 @@
 # Category-wide association study (CWAS)
 
-![CWAS CI Workflow](https://github.com/joonan30/cwas-plus2/actions/workflows/ci.yml/badge.svg)
+![CWAS CI Workflow](https://github.com/joonan-lab/cwas-plus2/actions/workflows/ci.yml/badge.svg)
 
 **CWAS (Category-Wide Association Study)** is a data analytic tool to perform stringent association tests to find non-coding loci associated with autism spectrum disorder (ASD). CWAS runs category-based burden tests using de novo variants from whole genome sequencing data and diverse annotation data sets.
 
@@ -89,7 +89,7 @@ Or install from source:
 ```bash
 conda create -n cwas python=3.11
 conda activate cwas
-git clone https://github.com/joonan30/cwas-plus2.git
+git clone https://github.com/joonan-lab/cwas-plus2.git
 cd cwas-plus2
 pip install .
 ```

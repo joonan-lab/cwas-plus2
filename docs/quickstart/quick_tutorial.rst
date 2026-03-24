@@ -17,7 +17,7 @@ This is a quick tutorial for CWAS-Plus. Specific descriptions of arguments are d
 
     conda create -n cwas python=3.11
     conda activate cwas
-    git clone https://github.com/joonan30/cwas-plus2.git
+    git clone https://github.com/joonan-lab/cwas-plus2.git
     cd cwas-plus2
     pip install .
     cwas start
