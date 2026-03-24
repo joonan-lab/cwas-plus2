@@ -4,9 +4,9 @@
 Burden test
 *********************************
 
-With categorized results, CWAS-Plus calculate the burden of each category by comparing the rate of variants per cases and the rate of variants per controls.
+With categorized results, CWAS-Plus2 calculate the burden of each category by comparing the rate of variants per cases and the rate of variants per controls.
 
-For burden measurement, the package uses relative risk (RR), which is calculated by comparing the number of variants per phenotype group (RR>1, case burden; RR<1, control burden). The burden test in CWAS-Plus contains two types of p-value computation methods, binomial test and permutation test, to find more accurate p statistics.
+For burden measurement, the package uses relative risk (RR), which is calculated by comparing the number of variants per phenotype group (RR>1, case burden; RR<1, control burden). The burden test in CWAS-Plus2 contains two types of p-value computation methods, binomial test and permutation test, to find more accurate p statistics.
 
 .. _binomtest:
 
@@ -32,7 +32,7 @@ For binomial tests, two types of tests are used: two-sided binomial tests and on
   | 11002.s1 | 11002  |   ctrl    |
   +----------+--------+-----------+
 
-- -a, --adjustment_factor: Path to the txt file containing the adjust factors for each sample. This is optional. With this option, CWAS-Plus multiplies the number of variants (or carriers, in -u option) with the adjust factor per sample.
+- -a, --adjustment_factor: Path to the txt file containing the adjust factors for each sample. This is optional. With this option, CWAS-Plus2 multiplies the number of variants (or carriers, in -u option) with the adjust factor per sample.
 
   +----------+--------------+
   | SAMPLE   | AdjustFactor |
@@ -47,7 +47,7 @@ For binomial tests, two types of tests are used: two-sided binomial tests and on
   +----------+--------------+
 
 
-- -u, --use_n_carrier: Enables the sample-level analysis (use of the number of samples with variants in each category for burden test instead of the number of variants). With this option, CWAS-Plus counts the number of samples that carry at least one variant of each category.
+- -u, --use_n_carrier: Enables the sample-level analysis (use of the number of samples with variants in each category for burden test instead of the number of variants). With this option, CWAS-Plus2 counts the number of samples that carry at least one variant of each category.
 - -t, --tag: Tags of category queried for highlighting points on the volcano plot. If you use multiple tags, concatenate by comma (e.g. ``CRE,CHD8``). By default, None.
 - -num_ef, --num_effective_test: Number of effective tests for multiple comparison correction. By default, None.
 - -ms, --marker_size: Marker size of the volcano plot (unit: pt). By default, 15.
@@ -81,11 +81,11 @@ The parameters of the command are as below:
 - -i, --input_file: Path to the categorized zarr directory, resulted from categorization process.
 - -o_dir, --output_directory: Path to the directory where the output files will be saved. By default, outputs will be saved at ``$CWAS_WORKSPACE``.
 - -s, --sample_info: Path to the txt file containing the sample information for each sample. This file must have three columns (``SAMPLE``, ``FAMILY``, ``PHENOTYPE``) with the exact name.
-- -a, --adjustment_factor: Path to the txt file containing the adjust factors for each sample. This is optional. With this option, CWAS-Plus multiplies the number of variants (or carriers, in -u option) with the adjust factor per sample.
+- -a, --adjustment_factor: Path to the txt file containing the adjust factors for each sample. This is optional. With this option, CWAS-Plus2 multiplies the number of variants (or carriers, in -u option) with the adjust factor per sample.
 - -n, --num_perm: Number of permutations for label-swapping. By default, 10000.
 - -p, --num_proc: Number of worker processes that will be used for the permutation process. By default, 1.
 - -b, --burden_shift: Generates an output file containing binomial p-values for each label-swapped permutation. By default, False.
-- -u, --use_n_carrier: Enables the sample-level analysis (use of the number of samples with variants in each category for burden test instead of the number of variants). With this option, CWAS-Plus counts the number of samples that carry at least one variant of each category.
+- -u, --use_n_carrier: Enables the sample-level analysis (use of the number of samples with variants in each category for burden test instead of the number of variants). With this option, CWAS-Plus2 counts the number of samples that carry at least one variant of each category.
 
 .. code-block:: solidity
 

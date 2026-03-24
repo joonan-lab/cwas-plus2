@@ -1,13 +1,13 @@
-.. CWAS-Plus documentation master file, created by
+.. CWAS-Plus2 documentation master file, created by
    sphinx-quickstart on Wed May 10 00:04:11 2023.
    You can adapt this file completely to your liking, but it should at least
    contain the root `toctree` directive.
 
 ****************************************
-Welcome to CWAS-Plus documentation!
+Welcome to CWAS-Plus2 documentation!
 ****************************************
 
-CWAS-Plus (Category-Wide Association Study) is a data analysis tool designed to conduct rigorous association tests for discovering noncoding associations in complex genomic disorders. It runs category-based burden tests using variants from whole-genome sequencing data and various annotation datasets. CWAS-Plus provides a user-friendly interface for efficient hypothesis testing and has promising implications for uncovering the pathophysiology of various genomic disorders.
+CWAS-Plus2 (Category-Wide Association Study) is a data analysis tool designed to conduct rigorous association tests for discovering noncoding associations in complex genomic disorders. It runs category-based burden tests using variants from whole-genome sequencing data and various annotation datasets. CWAS-Plus2 provides a user-friendly interface for efficient hypothesis testing and has promising implications for uncovering the pathophysiology of various genomic disorders.
 
 Here are the reference papers:
 
@@ -16,46 +16,46 @@ Here are the reference papers:
 * `CWAS-Plus: Estimating category-wide association of rare noncoding variation from whole-genome sequencing data with cell-type-specific functional data <https://www.medrxiv.org/content/10.1101/2024.04.15.24305828v1>`_ (Kim et al., in press)
 
 
-CWAS-Plus workflow
+CWAS-Plus2 workflow
 #####################
 
 .. figure:: ../images/CWAS_workflow.jpg
-   :alt: CWAS-Plus workflow
+   :alt: CWAS-Plus2 workflow
    :width: 90%
    :align: center
 
-   **A.** Workflow\: Variants extracted from whole-genome sequencing data of samples (sample variant) serve as inputs. **B-G.** Graphic descriptions of each process in CWAS-Plus\: Red (case) and blue (control) represent the phenotype. **F.** Representative network pointed by the purple arrow provides an enlarged view of a subset of the network. Node color indicates the direction of the burden in each category (red, case burden; blue, control burden). **G.** Node color reflects the scale of the normalized z-score, which represents the degree of disease association of the cluster. Darker red indicates a higher association. Node size represents the number of categories within the cluster.
+   **A.** Workflow\: Variants extracted from whole-genome sequencing data of samples (sample variant) serve as inputs. **B-G.** Graphic descriptions of each process in CWAS-Plus2\: Red (case) and blue (control) represent the phenotype. **F.** Representative network pointed by the purple arrow provides an enlarged view of a subset of the network. Node color indicates the direction of the burden in each category (red, case burden; blue, control burden). **G.** Node color reflects the scale of the normalized z-score, which represents the degree of disease association of the cluster. Darker red indicates a higher association. Node size represents the number of categories within the cluster.
 
 
 .. toctree::
    :maxdepth: 1
-   :caption: CWAS-Plus tutorial
+   :caption: CWAS-Plus2 tutorial
 
    quickstart/quick_tutorial.rst
    quickstart/advanced_tutorial.rst
 
 .. toctree::
    :maxdepth: 1
-   :caption: CWAS-Plus installation
+   :caption: CWAS-Plus2 installation
 
    install/installation.rst
 
 .. toctree::
    :maxdepth: 1
-   :caption: CWAS-Plus requirements
+   :caption: CWAS-Plus2 requirements
 
    required/input.rst
    required/annotations.rst
 
 .. toctree::
    :maxdepth: 1
-   :caption: CWAS-Plus configuration
+   :caption: CWAS-Plus2 configuration
 
    config/configuration.rst
 
 .. toctree::
    :maxdepth: 1
-   :caption: CWAS-Plus steps
+   :caption: CWAS-Plus2 steps
 
    steps/annotation.rst
    steps/categorization.rst

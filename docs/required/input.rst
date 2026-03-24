@@ -39,7 +39,7 @@ The values in the SAMPLE column are matched to the sample IDs of variants in the
 3. Adjustment factors
 ###################################
 
-Adjustment factors are required if the users want to adjust the number of variants for each sample in CWAS-Plus. The file must be tab separated and must contain two columns, *SAMPLE* and *AdjustFactor*. A value in the *AdjustFactor* must be a float.
+Adjustment factors are required if the users want to adjust the number of variants for each sample in CWAS-Plus2. The file must be tab separated and must contain two columns, *SAMPLE* and *AdjustFactor*. A value in the *AdjustFactor* must be a float.
 The values in the SAMPLE column must be matched to the sample IDs of variants in the input vcf file.
 
 +----------+--------------+

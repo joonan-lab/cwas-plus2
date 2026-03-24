@@ -10,7 +10,7 @@ Configuration step is required for setting the path the required datasets and en
 Setting the environmental variables
 ######################################
 
-Inside the CWAS-Plus workspace directory, there is a configuration file ``configuration.txt``. This file contains a few crucial environmental variables that will be used through CWAS-Plus. The description of each variable is as below:
+Inside the CWAS-Plus2 workspace directory, there is a configuration file ``configuration.txt``. This file contains a few crucial environmental variables that will be used through CWAS-Plus2. The description of each variable is as below:
 
 - **ANNOTATION_DATA_DIR**: This is the path of the directory, which contains annotation datasets, such as bed files.
 - **GENE_MATRIX**: This is the path of the gene matrix, which is a text file. The first column should be gene ID, and the second column should be gene name. The other columns will represent each gene list and show whether each row (=gene) are matched to the gene list or not by a binary code (0, 1). 1 if the gene is matched to a gene list, 0 if not.
@@ -52,7 +52,7 @@ For example, check below.
     bed4.bed.gz: annot4
 
 
-After filling the configuration file, type the below command for configuration. This process will create a symlink to the annotation dataset directory, gene matrix and the annotation key file to the user's workspace. Also, based on the annotation key file, a category domain file and a redundant category file will be created. The category domain file contains all the inferior category groups that will be used for CWAS-Plus. The redundant category file contains the combination of categories that will be excluded in CWAS-Plus. This is for removing duplicated categories (for example, coding variants with all genes and coding variants with coding genes) and nonsense categories (for example, missense variants that are indels).
+After filling the configuration file, type the below command for configuration. This process will create a symlink to the annotation dataset directory, gene matrix and the annotation key file to the user's workspace. Also, based on the annotation key file, a category domain file and a redundant category file will be created. The category domain file contains all the inferior category groups that will be used for CWAS-Plus2. The redundant category file contains the combination of categories that will be excluded in CWAS-Plus2. This is for removing duplicated categories (for example, coding variants with all genes and coding variants with coding genes) and nonsense categories (for example, missense variants that are indels).
 
 To force configuration (overwrite previous configurations), use ``-f`` option.
 
@@ -61,7 +61,7 @@ To force configuration (overwrite previous configurations), use ``-f`` option.
     cwas configuration
 
 
-After configuration, a file ``.cwas_env`` that contains environmental variables for CWAS-Plus will be created in the home directory.
+After configuration, a file ``.cwas_env`` that contains environmental variables for CWAS-Plus2 will be created in the home directory.
 
 
 .. _data-prep-label:
@@ -99,7 +99,7 @@ After preparation, the merged bed file (``merged_annotation.bed.gz``) looks like
 
 The line starts with ``#ANNOT`` indicates the annotation datasets merged in the bed file. It also indicates the order of the datasets matched to the ``annot_int``.
 
-The column ``annot_int`` represents the decimal number converted from binary code. The binary code consists of 0 and 1, but the representation is different from ordinary binary numbers. For example, when an interval from 1,000 to 1,010 base overlaps with ChmE1 and ChmE2 region, the binary code for CWAS-Plus will be ``110`` (1 if the region overlaps, and 0 if not.). CWAS-Plus then converts it to decimal numbers. Here, the 1st position refers to 2\ :sup:`0`, the 2nd position refers to 2\ :sup:`1`, and the 3rd position refers to 2\ :sup:`2`. Therefore, the decimal number would be 1*2\ :sup:`0` + 1*2\ :sup:`1` + 0*2\ :sup:`2` = 3. Using this algorithm, CWAS-Plus merges genomic intervals efficiently.
+The column ``annot_int`` represents the decimal number converted from binary code. The binary code consists of 0 and 1, but the representation is different from ordinary binary numbers. For example, when an interval from 1,000 to 1,010 base overlaps with ChmE1 and ChmE2 region, the binary code for CWAS-Plus2 will be ``110`` (1 if the region overlaps, and 0 if not.). CWAS-Plus2 then converts it to decimal numbers. Here, the 1st position refers to 2\ :sup:`0`, the 2nd position refers to 2\ :sup:`1`, and the 3rd position refers to 2\ :sup:`2`. Therefore, the decimal number would be 1*2\ :sup:`0` + 1*2\ :sup:`1` + 0*2\ :sup:`2` = 3. Using this algorithm, CWAS-Plus2 merges genomic intervals efficiently.
 
 
 

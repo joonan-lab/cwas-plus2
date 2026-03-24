@@ -4,7 +4,7 @@
 Annotation
 *********************************
 
-CWAS-Plus annotates variants using VEP and its own custom annotation algorithm. The parameters of the command are as below:
+CWAS-Plus2 annotates variants using VEP and its own custom annotation algorithm. The parameters of the command are as below:
 
 - -v, --vcf_file: Path to the input vcf file. This file could be bgzipped or not.
 - -p, --num_proc: Number of worker processes that will be used for the annotation process. By default, 1.

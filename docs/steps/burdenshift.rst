@@ -4,7 +4,7 @@
 Burden shift analysis
 *********************************
 
-From burden test results, CWAS-Plus can find overrepresented domains across significant categories. By comparing the observed number of significant categories with the number of significant categories from samples with a randomly shuffled phenotype, the significance of the overrepresentation is determined.
+From burden test results, CWAS-Plus2 can find overrepresented domains across significant categories. By comparing the observed number of significant categories with the number of significant categories from samples with a randomly shuffled phenotype, the significance of the overrepresentation is determined.
 
 The parameters of the command are as below:
 

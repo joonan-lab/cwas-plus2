@@ -4,7 +4,7 @@
 Risk score analysis
 *************************
 
-CWAS-Plus utilizes categorized results to estimate the optimal predictor for the phenotype. It trains a Lasso regression model using the number of variants within each category across samples. After training the model with a subset of samples, the remaining test set is employed to calculate the |R2|. The significance of the |R2| value is determined by calculating it from samples with a randomly shuffled phenotype. The number of regressions (-n_reg) can be set to obtain the average |R2| value from all regressions.
+CWAS-Plus2 utilizes categorized results to estimate the optimal predictor for the phenotype. It trains a Lasso regression model using the number of variants within each category across samples. After training the model with a subset of samples, the remaining test set is employed to calculate the |R2|. The significance of the |R2| value is determined by calculating it from samples with a randomly shuffled phenotype. The number of regressions (-n_reg) can be set to obtain the average |R2| value from all regressions.
 
 .. |R2| replace:: R\ :sup:`2`
 
@@ -25,7 +25,7 @@ CWAS-Plus utilizes categorized results to estimate the optimal predictor for the
   | 11002.s1 | 11002  |   ctrl    |
   +----------+--------+-----------+
 
-- -a, --adjustment_factor: Path to the txt file containing the adjust factors for each sample. This is optional. With this option, CWAS-Plus multiplies the number of variants (or carriers, in -u option) with the adjust factor per sample.
+- -a, --adjustment_factor: Path to the txt file containing the adjust factors for each sample. This is optional. With this option, CWAS-Plus2 multiplies the number of variants (or carriers, in -u option) with the adjust factor per sample.
 
   +----------+--------------+
   | SAMPLE   | AdjustFactor |
@@ -44,7 +44,7 @@ CWAS-Plus utilizes categorized results to estimate the optimal predictor for the
 - -t, --tag: Tag used for the name of the output files. By default, None.
 - --do_each_one: Use each annotation from functional annotation to calculate risk score. By default, False.
 - --leave_one_out: Calculate risk score while excluding one annotation from functional annotation. This option is not used when the `--do_each_one` flag is enabled. By default, False.
-- -u, --use_n_carrier: Enables the sample-level analysis (the use of the number of samples with variants in each category for burden test instead of the number of variants). With this option, CWAS-Plus counts the number of samples that carry at least one variant of each category.
+- -u, --use_n_carrier: Enables the sample-level analysis (the use of the number of samples with variants in each category for burden test instead of the number of variants). With this option, CWAS-Plus2 counts the number of samples that carry at least one variant of each category.
 - -thr, --threshold: The number of variants in controls (or the number of control carriers) used to select rare categories. For example, if set to 3, categories with less than 3 variants in controls will be used for training. By default, 3.
 - -tf, --train_set_fraction: The fraction of the training set. For example, if set to 0.7, 70% of the samples will be used as training set and 30% will be used as test set. By default, 0.7.
 - -n_reg, --num_regression: Number of regression trials to calculate a mean of R squares. By default, 10.

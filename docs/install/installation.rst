@@ -1,18 +1,18 @@
 .. _installation:
 
 *********************************
-CWAS-Plus installation
+CWAS-Plus2 installation
 *********************************
 
 
 Requirements
 ###############
 
-For CWAS-Plus to run, the users need to (1) install conda and Ensembl Variant Effect Predictor (VEP) and (2) download a few databases for annotation.
+For CWAS-Plus2 to run, the users need to (1) install conda and Ensembl Variant Effect Predictor (VEP) and (2) download a few databases for annotation.
 
 **1. Required installations**
 
-- **Conda**: CWAS-Plus install packages using conda environment. Please install conda or mamba.
+- **Conda**: CWAS-Plus2 install packages using conda environment. Please install conda or mamba.
 - **Rust**: A Rust compiler is required for building the high-performance categorization engine. Install it with:
 
   .. code-block:: solidity
@@ -24,7 +24,7 @@ For CWAS-Plus to run, the users need to (1) install conda and Ensembl Variant Ef
 
 **2. VEP resources**
 
-- **Missense database**: Missense database containing scores to classify damaging missense variants are required. In CWAS-Plus, MPC database is available. If users want to use other database, they can download their own database and customize the ``configuration.txt`` to use it.
+- **Missense database**: Missense database containing scores to classify damaging missense variants are required. In CWAS-Plus2, MPC database is available. If users want to use other database, they can download their own database and customize the ``configuration.txt`` to use it.
 
   .. code-block:: solidity
     
@@ -68,11 +68,11 @@ For CWAS-Plus to run, the users need to (1) install conda and Ensembl Variant Ef
 
 
 
-Install CWAS-Plus
+Install CWAS-Plus2
 ####################
 
 
-Users can instasll CWAS-Plus through pip or github. We recommend installing under a conda environment to avoid global installation.
+Users can instasll CWAS-Plus2 through pip or github. We recommend installing under a conda environment to avoid global installation.
 
 - pip
 
@@ -93,7 +93,7 @@ Users can instasll CWAS-Plus through pip or github. We recommend installing unde
     pip install .
 
 
-To start CWAS-Plus, type the command below. This will create a workspace (``.cwas``) for CWAS-Plus in home directory. You can specify the directory that will be used as a working directory. As a default, ``$HOME/.cwas`` will be set. If you have a pre-installed VEP, this process will find it automatically and type it to the configuration file.
+To start CWAS-Plus2, type the command below. This will create a workspace (``.cwas``) for CWAS-Plus2 in home directory. You can specify the directory that will be used as a working directory. As a default, ``$HOME/.cwas`` will be set. If you have a pre-installed VEP, this process will find it automatically and type it to the configuration file.
 
 - -w: Path to the CWAS working directory. All default CWAS processes will save their output here if no specific output directory is given. By default, the directory is set to ``$HOME/.cwas``.
 

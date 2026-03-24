@@ -1,15 +1,15 @@
 *********************************
-Quick tutorial for CWAS-Plus
+Quick tutorial for CWAS-Plus2
 *********************************
 
-This is a quick tutorial for CWAS-Plus. Specific descriptions of arguments are described in the page of each step.
+This is a quick tutorial for CWAS-Plus2. Specific descriptions of arguments are described in the page of each step.
 
 
 
-1. :ref:`Install CWAS-Plus <installation>`
+1. :ref:`Install CWAS-Plus2 <installation>`
 ###########################################
 
-  Users can install CWAS-Plus through pip or github. We recommend installing under conda environment to avoid global installation.
+  Users can install CWAS-Plus2 through pip or github. We recommend installing under conda environment to avoid global installation.
 
   A `Rust compiler <https://www.rust-lang.org/tools/install>`_ is required. Install it with: ``curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh``
 
@@ -46,7 +46,7 @@ This is a quick tutorial for CWAS-Plus. Specific descriptions of arguments are d
 
   Inside the CWAS working directory, there is a configuration file (``configuration.txt``). Fill in the file with paths of the required tools and data.
 
-  Download required resources (annotation datasets and VEP resources) for CWAS-Plus. This might take a few hours depending on the speed of the network.
+  Download required resources (annotation datasets and VEP resources) for CWAS-Plus2. This might take a few hours depending on the speed of the network.
 
   .. code-block:: solidity
 
@@ -58,7 +58,7 @@ This is a quick tutorial for CWAS-Plus. Specific descriptions of arguments are d
     mv functional_annotations/* . # Move bed files to the parent directory
     sh download_vep_resources.sh
 
-  Copy the ``configuration.txt`` in the ``cwas-dataset`` to the CWAS-Plus working directory (by default, ``$HOME/.cwas``).
+  Copy the ``configuration.txt`` in the ``cwas-dataset`` to the CWAS-Plus2 working directory (by default, ``$HOME/.cwas``).
 
   (For installation of VEP, check :ref:`FAQ <faq>`)
 
@@ -161,8 +161,8 @@ This is a quick tutorial for CWAS-Plus. Specific descriptions of arguments are d
     - -i, --input_file: Path to the categorized zarr directory, resulted from categorization process.
     - -o_dir, --output_directory: Path to the directory where the output files will be saved. By default, outputs will be saved at ``$CWAS_WORKSPACE``.
     - -s, --sample_info: Path to the txt file containing the sample information for each sample. This file must have three columns (``SAMPLE``, ``FAMILY``, ``PHENOTYPE``) with the exact name.
-    - -a, --adjustment_factor: Path to the txt file containing the adjust factors for each sample. This is optional. With this option, CWAS-Plus multiplies the number of variants (or carriers, in -u option) with the adjust factor per sample.
-    - -u, --use_n_carrier: Enables the sample-level analysis (use of the number of samples with variants in each category for burden test instead of the number of variants). With this option, CWAS-Plus counts the number of samples that carry at least one variant of each category.
+    - -a, --adjustment_factor: Path to the txt file containing the adjust factors for each sample. This is optional. With this option, CWAS-Plus2 multiplies the number of variants (or carriers, in -u option) with the adjust factor per sample.
+    - -u, --use_n_carrier: Enables the sample-level analysis (use of the number of samples with variants in each category for burden test instead of the number of variants). With this option, CWAS-Plus2 counts the number of samples that carry at least one variant of each category.
 
      .. code-block:: solidity
         
@@ -185,11 +185,11 @@ This is a quick tutorial for CWAS-Plus. Specific descriptions of arguments are d
     - -i, --input_file: Path to the categorized zarr directory, resulted from categorization process.
     - -o_dir, --output_directory: Path to the directory where the output files will be saved. By default, outputs will be saved at ``$CWAS_WORKSPACE``.
     - -s, --sample_info: Path to the txt file containing the sample information for each sample. This file must have three columns (``SAMPLE``, ``FAMILY``, ``PHENOTYPE``) with the exact name.
-    - -a, --adjustment_factor: Path to the txt file containing the adjust factors for each sample. This is optional. With this option, CWAS-Plus multiplies the number of variants (or carriers, in -u option) with the adjust factor per sample.
+    - -a, --adjustment_factor: Path to the txt file containing the adjust factors for each sample. This is optional. With this option, CWAS-Plus2 multiplies the number of variants (or carriers, in -u option) with the adjust factor per sample.
     - -n, --num_perm: Number of permutations for label-swapping. By default, 10000.
     - -p, --num_proc: Number of worker processes that will be used for the permutation process. By default, 1.
     - -b, --burden_shift: Generates an output file containing binomial p-values for each label-swapped permutation. By default, False.
-    - -u, --use_n_carrier: Enables the sample-level analysis (use of the number of samples with variants in each category for burden test instead of the number of variants). With this option, CWAS-Plus counts the number of samples that carry at least one variant of each category.
+    - -u, --use_n_carrier: Enables the sample-level analysis (use of the number of samples with variants in each category for burden test instead of the number of variants). With this option, CWAS-Plus2 counts the number of samples that carry at least one variant of each category.
 
      .. code-block:: solidity
         
@@ -328,13 +328,13 @@ Below are the output files generated.
   - -i, --input_file: Path to the categorized zarr directory, resulted from categorization process.
   - -o_dir, --output_directory: Path to the directory where the output files will be saved. By default, outputs will be saved at ``$CWAS_WORKSPACE``.
   - -s, --sample_info: Path to the txt file containing the sample information for each sample. This file must have three columns (``SAMPLE``, ``FAMILY``, ``PHENOTYPE``) with the exact name.
-  - -a, --adjustment_factor: Path to the txt file containing the adjust factors for each sample. This is optional. With this option, CWAS-Plus multiplies the number of variants (or carriers, in -u option) with the adjust factor per sample.
+  - -a, --adjustment_factor: Path to the txt file containing the adjust factors for each sample. This is optional. With this option, CWAS-Plus2 multiplies the number of variants (or carriers, in -u option) with the adjust factor per sample.
   - -c_info, --category_info: Path to a text file category information (`*.category_info.txt`).
   - -d, --domain_list: Domain list to filter categories based on GENCODE domain. If 'run_all' is given, all available options will be tested. Available options are `run_all,all,coding,noncoding,ptv,missense,damaging_missense,promoter,noncoding_wo_promoter,intron,intergenic,utr,lincRNA`. By default, all.
   - -t, --tag: Tag used for the name of the output files. By default, None.
   - --do_each_one: Use each annotation from functional annotation to calculate risk score. By default, False.
   - --leave_one_out: Calculate risk score while excluding one annotation from functional annotation. This option is not used when the `--do_each_one` flag is enabled. By default, False.
-  - -u, --use_n_carrier: Enables the sample-level analysis (the use of the number of samples with variants in each category for burden test instead of the number of variants). With this option, CWAS-Plus counts the number of samples that carry at least one variant of each category.
+  - -u, --use_n_carrier: Enables the sample-level analysis (the use of the number of samples with variants in each category for burden test instead of the number of variants). With this option, CWAS-Plus2 counts the number of samples that carry at least one variant of each category.
   - -thr, --threshold: The number of variants in controls (or the number of control carriers) used to select rare categories. For example, if set to 3, categories with less than 3 variants in controls will be used for training. By default, 3.
   - -tf, --train_set_fraction: The fraction of the training set. For example, if set to 0.7, 70% of the samples will be used as training set and 30% will be used as test set. By default, 0.7.
   - -n_reg, --num_regression: Number of regression trials to calculate a mean of R squares. By default, 10.

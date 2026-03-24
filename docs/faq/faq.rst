@@ -165,15 +165,15 @@ Then, configure again.
   cwas configuration -f
 
 
-The annotation of CWAS-Plus contains two steps: (1) VEP annotation, (2) BED custom annotation. If the output of each step already exists, then the step is skipped.
+The annotation of CWAS-Plus2 contains two steps: (1) VEP annotation, (2) BED custom annotation. If the output of each step already exists, then the step is skipped.
 
 If users already have the VEP annotated file (`*.vep.vcf.gz`), they can start from annotation step.
 
-CWAS-Plus skips VEP annotation if the VEP annotated file already exists.
+CWAS-Plus2 skips VEP annotation if the VEP annotated file already exists.
 
 .. code-block:: solidity
 
   cwas annotation -v INPUT.vcf -o_dir OUTPUT_DIR -p 8
 
-However, before annotation, please **remove the annotated VCF** (`*annotated.vcf.gz`). If the annotated VCF exists, CWAS-Plus will also skip BED custom annotation step.
+However, before annotation, please **remove the annotated VCF** (`*annotated.vcf.gz`). If the annotated VCF exists, CWAS-Plus2 will also skip BED custom annotation step.
 
