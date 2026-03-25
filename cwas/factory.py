@@ -30,8 +30,14 @@ def create(step_name: str) -> CWASFactory:
         runnable_module = importlib.import_module(f"cwas.{step_name}")
         runnable = getattr(runnable_module, make_class_name(step_name))
         argparser = getattr(cwas.argparser, step_name)
-    except (ImportError, AttributeError) as e:
+    except AttributeError as e:
         raise ValueError(f'CWAS does not support "{step_name}".') from e
+    except ModuleNotFoundError as e:
+        raise ValueError(f'CWAS does not support "{step_name}".') from e
+    except ImportError as e:
+        raise ImportError(
+            f'Failed to import "cwas.{step_name}": {e}'
+        ) from e
 
     return CWASFactory(argparser, runnable)
 
