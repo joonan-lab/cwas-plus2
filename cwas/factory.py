@@ -32,6 +32,8 @@ def create(step_name: str) -> CWASFactory:
         argparser = getattr(cwas.argparser, step_name)
     except AttributeError as e:
         raise ValueError(f'CWAS does not support "{step_name}".') from e
+    except ModuleNotFoundError as e:
+        raise ValueError(f'CWAS does not support "{step_name}".') from e
     except ImportError as e:
         raise ImportError(
             f'Failed to import "cwas.{step_name}": {e}'
