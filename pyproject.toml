@@ -61,7 +61,7 @@ build-backend = "maturin"
 
 [project]
 name = "cwas-plus2"
-version = "0.2.2"
+version = "0.2.3"
 description = "Category-wide association study (CWAS). A data analytic tool to perform stringent association tests to find non-coding loci associated with autism spectrum disorder (ASD)."
 requires-python = ">=3.9,<3.13"
 readme = "README.md"
