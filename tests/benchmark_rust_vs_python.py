@@ -319,10 +319,10 @@ def _build_category_domain(annot_terms):
 
 
 def _build_gene_matrix(df):
-    """Build a minimal gene_matrix for testing."""
+    """Build a minimal gene_matrix for testing, keyed by gene ID."""
     gene_matrix = {}
-    if 'SYMBOL' in df.columns:
-        for gene in df['SYMBOL'].unique():
+    if 'Gene' in df.columns:
+        for gene in df['Gene'].unique():
             gene_matrix[gene] = {'ProteinCoding'}
     if 'NEAREST' in df.columns:
         for gene in df['NEAREST'].unique():

@@ -11,8 +11,17 @@ import gzip
 
 import numpy as np
 import pandas as pd
-from cwas.core.common import int_to_bit_arr
-from cwas.utils.log import print_err
+from cwas.core.common import (
+    ENSEMBL_GENE_ID_PATTERN,
+    GENE_ID_SEPARATOR,
+    GENE_LIST_MEMBER,
+    check_gene_matrix_ids,
+    check_gene_list_values,
+    find_gene_key_columns,
+    int_to_bit_arr,
+    normalize_gene_id,
+)
+from cwas.utils.log import print_err, print_warn
 
 try:
     from cwas_core import parse_vcf as _rust_parse_vcf
@@ -28,8 +37,58 @@ def parse_annotated_vcf(vcf_path: pathlib.Path) -> pd.DataFrame:
     pandas.DataFrame object listing annotated variants.
     """
     if _USE_RUST_VCF:
-        return _parse_annotated_vcf_rust(vcf_path)
-    return _parse_annotated_vcf_python(vcf_path)
+        result = _parse_annotated_vcf_rust(vcf_path)
+    else:
+        result = _parse_annotated_vcf_python(vcf_path)
+
+    check_nearest_is_gene_id(result, vcf_path)
+    return result
+
+
+# The values a NEAREST field carries when it names no gene.
+_NEAREST_PLACEHOLDERS = ("", "-", "nan", "None")
+
+
+def check_nearest_is_gene_id(
+    annotated_vcf: pd.DataFrame, vcf_path: pathlib.Path
+) -> None:
+    """ Raise if the NEAREST field holds gene symbols instead of gene IDs.
+
+    An annotated VCF made before genes were matched by ID was produced by VEP
+    with '--nearest symbol'. Its symbols cannot match the ID-keyed gene matrix,
+    so every intergenic and downstream variant would silently lose its gene set
+    annotation. Such a VCF is rejected rather than quietly mis-categorized.
+    """
+    if "NEAREST" not in annotated_vcf.columns:
+        return
+
+    nearest = annotated_vcf["NEAREST"].astype(str)
+    nearest = nearest[~nearest.isin(_NEAREST_PLACEHOLDERS)]
+
+    # A NEAREST field holds every gene tied for nearest, joined by '&', so it
+    # is split before it is checked. Matching the field whole would only ever
+    # test the gene VEP listed first, because the pattern is anchored at the
+    # start of the string, and 'ENSG1&SAMD11' would pass while 'SAMD11&ENSG1'
+    # was rejected.
+    genes = nearest.str.split(GENE_ID_SEPARATOR).explode()
+    genes = genes[~genes.isin(_NEAREST_PLACEHOLDERS)]
+
+    if genes.empty:
+        return
+
+    is_gene_id = genes.str.match(ENSEMBL_GENE_ID_PATTERN)
+
+    if is_gene_id.all():
+        return
+
+    examples = ", ".join(genes[~is_gene_id].unique()[:5])
+    raise ValueError(
+        f'The NEAREST field of "{vcf_path}" holds gene symbols '
+        f"(e.g. {examples}) instead of Ensembl gene IDs. This VCF was "
+        "annotated by a CWAS-Plus version that ran VEP with "
+        "'--nearest symbol'. Genes are now matched by ID, so this VCF must "
+        "be re-annotated with 'cwas annotation' before it is categorized."
+    )
 
 
 def _parse_annotated_vcf_rust(vcf_path: pathlib.Path) -> pd.DataFrame:
@@ -167,42 +226,52 @@ def _parse_annot_column(
 
 def parse_gene_matrix(gene_matrix_path: pathlib.Path) -> dict:
     """ Parse the gene matrix file and make a dictionary.
-    The keys and values of the dictionary are gene symbols
+    The keys and values of the dictionary are gene IDs
     and a set of type names where the gene is associated,
     respectively.
     """
-    with gene_matrix_path.open("r") as gene_matrix_file:
-        return _parse_gene_matrix(gene_matrix_file)
+    with gene_matrix_path.open("r", encoding="utf-8-sig") as gene_matrix_file:
+        return _parse_gene_matrix(gene_matrix_file, gene_matrix_path)
 
 
-def _parse_gene_matrix(gene_matrix_file: TextIOWrapper) -> dict:
+def _parse_gene_matrix(
+    gene_matrix_file: TextIOWrapper, gene_matrix_path=None
+) -> dict:
     result = dict()
     header = gene_matrix_file.readline()
     header_cols = header.rstrip("\n").split("\t")
 
-    # 🔎 Find gene symbol column (minimal flexibility)
-    gene_col_candidates = {"gene_name", "gene_symbol", "symbol"}
-    gene_col_idx = None
-    for i, col in enumerate(header_cols):
-        if col.lower() in gene_col_candidates:
-            gene_col_idx = i
-            break
+    gene_id_idx, gene_name_idx = find_gene_key_columns(header_cols)
+    gene_type_idxs = [
+        i
+        for i in range(len(header_cols))
+        if i != gene_id_idx and i != gene_name_idx
+    ]
+    all_gene_types = np.array([header_cols[i] for i in gene_type_idxs])
 
-    if gene_col_idx is None:
-        raise ValueError(
-            "Header must contain one of: gene_name, gene_symbol, symbol. "
-            f"Found: {header_cols}"
-        )
+    rows = [line.rstrip("\n").split("\t") for line in gene_matrix_file]
+    check_gene_matrix_ids(
+        [cols[gene_id_idx] for cols in rows], gene_matrix_path
+    )
 
-    all_gene_types = np.array(header_cols[gene_col_idx + 1 :])
+    for cols in rows:
+        gene_id = normalize_gene_id(cols[gene_id_idx])
+        gene_matrix_values = np.array([cols[i] for i in gene_type_idxs])
 
-    for line in gene_matrix_file:
-        cols = line.rstrip("\n").split("\t")
+        check_gene_list_values(gene_matrix_values)
+        gene_types = set(all_gene_types[gene_matrix_values == GENE_LIST_MEMBER])
 
-        gene_symbol = cols[gene_col_idx]
-        gene_matrix_values = cols[gene_col_idx + 1 :]
+        # Rows collapse onto one ID when a gene matrix carries several versions
+        # of a gene, or the two pseudoautosomal copies of one. That is expected
+        # and silent. Only rows that disagree on their gene lists are worth a
+        # warning, because there the entry that is dropped carried something
+        # the kept one does not.
+        if gene_id in result and result[gene_id] != gene_types:
+            print_warn(
+                f'The gene ID "{gene_id}" is duplicated in the gene matrix '
+                "with differing gene lists. Only the last entry is kept."
+            )
 
-        gene_types = all_gene_types[np.array(gene_matrix_values) == "1"]
-        result[gene_symbol] = set(gene_types)
+        result[gene_id] = gene_types
 
     return result

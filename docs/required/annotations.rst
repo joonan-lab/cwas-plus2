@@ -20,7 +20,35 @@ For bed custom annotation, CWAS-Plus2 gathers all functional annotations and sco
 1. Gene sets
 ###################
 
-The gene set is a matrix with genes in each row identifying whether a gene falls into each gene set in columns. This matrix must contain Ensembl gene ID as a column to match genes with the gene annotated VCF from annotation output. The user-provided gene sets are added as columns with each row filled with binary code (1, if the gene belongs to the gene set. 0, if not.). The gene set file should also contain protein-coding genes, pseudogenes, and long noncoding RNAs as columns so that CWAS-Plus2 can use these gene sets while categorizing. The updated columns should be added with these columns.
+The gene set is a matrix with genes in each row identifying whether a gene falls into each gene set in columns. This matrix must contain a column of Ensembl gene IDs, named ``gene_id`` or ``ensembl_gene_id``, to match genes with the gene annotated VCF from annotation output. Genes are matched by ID because gene symbols are not unique: a single symbol can map to several distinct genes, so matching by symbol silently drops genes and can attach the wrong gene sets. A gene symbol column, named ``gene_name``, ``gene_symbol`` or ``symbol``, is optional and is used only to label the output. Columns are found by name, ignoring case, so their order does not matter, and a version suffix on the gene ID (e.g. ``ENSG00000000003.15``) is ignored when genes are matched. The matrix should carry exactly one gene ID column and at most one symbol column, and those five key column names are reserved: a gene list named after any of them is consumed as a key column and disappears from the categories with no warning. The user-provided gene sets are added as columns with each row filled with binary code (1, if the gene belongs to the gene set. 0, if not.). The gene set file should also contain protein-coding genes, pseudogenes, and long noncoding RNAs as columns so that CWAS-Plus2 can use these gene sets while categorizing. The updated columns should be added with these columns.
+
+.. note::
+
+   GENCODE suffixes the chrY copy of a pseudoautosomal gene with ``_PAR_Y``
+   (e.g. ``ENSG00000182378.14_PAR_Y``) to keep it distinct from the chrX copy.
+   VEP never reports that suffix, because both copies share one Ensembl gene
+   ID. CWAS-Plus2 therefore drops it along with the version, which collapses
+   the two rows of a pseudoautosomal gene onto one entry. Should those rows
+   disagree on their gene lists, the last one is kept and a warning is
+   printed.
+
+.. note::
+
+   A variant can be equidistant from more than one gene, in which case VEP
+   reports all of them. CWAS-Plus2 keeps one: a protein-coding gene is
+   preferred, then the gene that belongs to more gene lists, counting neither
+   ``ProteinCoding`` nor ``lincRNA`` as they describe the gene's own biotype.
+   Genes that are still tied resolve to the one VEP reported first. Ties are
+   rare, occurring for 2 of the 234,227 variants of a whole-genome callset.
+
+.. note::
+
+   Annotated VCFs produced before CWAS-Plus2 matched genes by ID cannot be
+   reused. Those files were annotated by VEP with ``--nearest symbol``, so
+   their ``NEAREST`` field holds gene symbols rather than Ensembl gene IDs,
+   and every intergenic and downstream variant would fail to match the gene
+   matrix. Such a file is rejected with an error, and it must be re-created
+   with ``cwas annotation`` before it is categorized.
 
 +--------------------+-----------+---------------+---------+--------------+
 | gene_id            | gene_name | ProteinCoding | lincRNA | ASDTADAFDR03 |

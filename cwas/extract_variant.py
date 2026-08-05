@@ -8,9 +8,18 @@ from cwas.core.categorization.parser import _parse_annot_field
 import numpy as np
 import pandas as pd
 from cwas.runnable import Runnable
-from cwas.utils.log import print_progress
+from cwas.utils.log import print_progress, print_warn
 from cwas.core.categorization.parser import (
     parse_annotated_vcf,
+)
+from cwas.core.common import (
+    GENE_ID_SEPARATOR,
+    GENE_ID_SUFFIX_PATTERN,
+    check_gene_matrix_ids,
+    check_gene_list_values,
+    find_gene_key_columns,
+    is_gene_list_member,
+    resolve_tied_gene_id,
 )
 from cwas.utils.check import check_is_file, check_is_dir
 from numcodecs import JSON
@@ -20,6 +29,7 @@ class ExtractVariant(Runnable):
         super().__init__(args)
         self._annotated_vcf = None
         self._gene_matrix = None
+        self._gene_symbols = None
         self._tag = None
         self._category_set_path = None
         self._category_set = None
@@ -79,9 +89,72 @@ class ExtractVariant(Runnable):
     @property
     def gene_matrix(self) -> pd.DataFrame:
         if self._gene_matrix is None:
-            self._gene_matrix = pd.read_csv(self.get_env("GENE_MATRIX"), sep='\t')
-            # Keep the last gene in duplicates
-            self._gene_matrix = self._gene_matrix[~self._gene_matrix.duplicated(subset=['gene_name'], keep='last')]
+            # The gene list values are read as text, exactly as the
+            # categorization step reads them, so that the two steps cannot
+            # disagree on which genes a gene list holds. They are cast back to
+            # integers once checked, because the annotation that follows counts
+            # on them being numbers.
+            gene_matrix = pd.read_csv(
+                self.get_env("GENE_MATRIX"),
+                sep='\t',
+                dtype=str,
+                encoding="utf-8-sig",
+            )
+            # The gene key columns are found by name, the same way the
+            # categorization step finds them, so that a gene matrix accepted
+            # there is accepted here too.
+            columns = gene_matrix.columns.tolist()
+            gene_id_idx, gene_name_idx = find_gene_key_columns(columns)
+            gene_name_col = (
+                columns[gene_name_idx] if gene_name_idx is not None else None
+            )
+
+            gene_matrix = gene_matrix.rename(
+                columns={columns[gene_id_idx]: 'gene_id'}
+            )
+
+            check_gene_matrix_ids(
+                gene_matrix['gene_id'].tolist(),
+                self.get_env("GENE_MATRIX"),
+                gene_matrix.index.to_numpy() + 2,
+            )
+
+            gene_list_cols = [
+                col
+                for col in gene_matrix.columns
+                if col not in ('gene_id', gene_name_col)
+            ]
+            for col in gene_list_cols:
+                check_gene_list_values(gene_matrix[col].unique())
+            gene_matrix[gene_list_cols] = gene_matrix[gene_list_cols].astype(
+                int
+            )
+            gene_matrix['gene_id'] = (
+                gene_matrix['gene_id']
+                .astype(str)
+                .str.replace(GENE_ID_SUFFIX_PATTERN, "", regex=True)
+            )
+
+            # Stripping the version and '_PAR_Y' suffixes can collapse two rows
+            # onto the same gene ID. A duplicated key would multiply variant
+            # rows in the merge of annotate_variants, which then desynchronizes
+            # the annotation block appended positionally afterwards, so the
+            # matrix is de-duplicated here.
+            duplicated = gene_matrix['gene_id'].duplicated(keep='last')
+            if duplicated.any():
+                self._warn_conflicting_duplicates(gene_matrix, gene_name_col)
+                gene_matrix = gene_matrix[~duplicated]
+
+            # Genes are matched by ID, so the symbol is kept apart and only
+            # used to label the output.
+            self._gene_symbols = (
+                gene_matrix.set_index('gene_id')[gene_name_col]
+                if gene_name_col is not None
+                else None
+            )
+            self._gene_matrix = gene_matrix.drop(
+                columns=[gene_name_col] if gene_name_col is not None else []
+            )
         return self._gene_matrix
 
     @property
@@ -119,18 +192,107 @@ class ExtractVariant(Runnable):
 
         return result
 
+    @staticmethod
+    def _warn_conflicting_duplicates(
+        gene_matrix: pd.DataFrame, gene_name_col: Optional[str]
+    ) -> None:
+        """ Warn about gene IDs whose duplicated rows carry different gene lists.
+
+        Rows collapse onto one ID when a gene matrix carries several versions of
+        a gene, or the two pseudoautosomal copies of one. That is expected and
+        silent. Only rows that disagree on their gene lists are worth a warning,
+        because there the entry that is dropped carried something the kept one
+        does not.
+        """
+        gene_list_cols = [
+            col
+            for col in gene_matrix.columns
+            if col not in ('gene_id', gene_name_col)
+        ]
+        dup_rows = gene_matrix[
+            gene_matrix['gene_id'].duplicated(keep=False)
+        ]
+        conflicting = (
+            dup_rows.groupby('gene_id')[gene_list_cols]
+            .nunique()
+            .max(axis=1)
+            .gt(1)
+        )
+
+        if conflicting.any():
+            print_warn(
+                f"{int(conflicting.sum())} gene ID(s) are duplicated in the "
+                "gene matrix with differing gene lists. Only the last entry "
+                "of each is kept."
+            )
+
+    def _tied_gene_sets(self, tied_gene_ids: pd.Series) -> dict:
+        """ Map each gene of a tie to the gene lists it belongs to.
+
+        Only the genes that actually appear in a tie are looked up, because
+        ties are rare and the gene matrix holds tens of thousands of genes.
+        """
+        candidates = {
+            gene
+            for value in tied_gene_ids.unique()
+            for gene in value.split(GENE_ID_SEPARATOR)
+        }
+        gene_matrix = self.gene_matrix
+        gene_list_cols = [
+            col for col in gene_matrix.columns if col != 'gene_id'
+        ]
+        rows = gene_matrix[gene_matrix['gene_id'].isin(candidates)]
+        return {
+            row['gene_id']: {
+                col for col in gene_list_cols if is_gene_list_member(row[col])
+            }
+            for _, row in rows.iterrows()
+        }
+
     def annotate_variants(self):
         print_progress("Annotate variants with annotation dataset")
         self.annotated_vcf['CLASS'] = np.where(self.annotated_vcf['REF'].str.len() > 1, 'Deletion',
                                                np.where((self.annotated_vcf['REF'].str.len() == 1) & (self.annotated_vcf['ALT'].str.len() == 1), 'SNV', 'Insertion'))
-        self.annotated_vcf['DEF.GENE'] = self.annotated_vcf.apply(lambda x: x['NEAREST']
-                                                                    if "downstream_gene_variant" in x['Consequence']
-                                                                    or "intergenic_variant" in x['Consequence']
-                                                                    else x['SYMBOL'], axis=1)
-        merged_df = pd.merge(self.annotated_vcf, self.gene_matrix, left_on='DEF.GENE', right_on='gene_name', how='left')
+        is_intergenic = (
+            self.annotated_vcf['Consequence'].str.contains("downstream_gene_variant")
+            | self.annotated_vcf['Consequence'].str.contains("intergenic_variant")
+        )
+        self.annotated_vcf['DEF.GENE_ID'] = (
+            np.where(is_intergenic,
+                     self.annotated_vcf['NEAREST'],
+                     self.annotated_vcf['Gene'])
+        )
+        self.annotated_vcf['DEF.GENE_ID'] = (
+            pd.Series(self.annotated_vcf['DEF.GENE_ID'], index=self.annotated_vcf.index)
+            .astype(str)
+            .str.replace(GENE_ID_SUFFIX_PATTERN, "", regex=True)
+        )
+        # VEP joins the genes tied for nearest with '&'. They are resolved to
+        # a single gene by the same rule categorization uses, so that the
+        # extracted variants agree with the categories they were counted in.
+        tied = self.annotated_vcf['DEF.GENE_ID'].str.contains(
+            GENE_ID_SEPARATOR, regex=False
+        )
+        if tied.any():
+            tied_gene_sets = self._tied_gene_sets(
+                self.annotated_vcf.loc[tied, 'DEF.GENE_ID']
+            )
+            self.annotated_vcf.loc[tied, 'DEF.GENE_ID'] = (
+                self.annotated_vcf.loc[tied, 'DEF.GENE_ID'].map(
+                    lambda gene: resolve_tied_gene_id(gene, tied_gene_sets)
+                )
+            )
+        merged_df = pd.merge(self.annotated_vcf, self.gene_matrix, left_on='DEF.GENE_ID', right_on='gene_id', how='left')
         cols_to_fillna = self.gene_matrix.columns.tolist()
         merged_df[cols_to_fillna] = merged_df[cols_to_fillna].fillna(0)
-        merged_df = merged_df.drop(columns=['gene_id', 'gene_name'])
+        # Report the gene symbol for readability, falling back to the gene ID
+        # for genes that are absent from the gene matrix.
+        merged_df['DEF.GENE'] = (
+            merged_df['DEF.GENE_ID'].map(self._gene_symbols).fillna(merged_df['DEF.GENE_ID'])
+            if self._gene_symbols is not None
+            else merged_df['DEF.GENE_ID']
+        )
+        merged_df = merged_df.drop(columns=['gene_id'])
         ## Coding
         # Define the list of string patterns to search for
         patterns = ['stop_gained', 'splice_donor', 'splice_acceptor', 'frameshift_variant', 'missense_variant', 'protein_altering_variant', 'start_lost', 'stop_lost', 'inframe_deletion', 'inframe_insertion', 'synonymous_variant', 'stop_retained_variant', 'incomplete_terminal_codon_variant', 'protein_altering_variant', 'coding_sequence_variant']
@@ -300,5 +462,3 @@ class ExtractVariant(Runnable):
             print_progress("Annotation information attached")
         self.save_result()
         print_progress("Done")
-        
-        

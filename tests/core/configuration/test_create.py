@@ -60,24 +60,115 @@ def test_create_category_domain_list(cwas_workspace, annotation_key_conf, gene_m
 
     assert domain_list_path.is_file()
 
-    with domain_list_path.open("r") as domain_list_f, bed_key_conf.open(
-        "r"
-    ) as bed_key_f, gene_matrix.open(
-        "r"
-    ) as gene_mat_f:
+    with domain_list_path.open("r") as domain_list_f:
         domain_dict = yaml.safe_load(domain_list_f)
-        bed_key_dict = yaml.safe_load(bed_key_f)
 
-        cons_domains = bed_key_dict['functional_score'].values()
-        region_domains = bed_key_dict['functional_annotation'].values()
+    # Spelled out rather than re-derived from the same inputs. Deriving the
+    # expectation with the rule under test, or comparing only lengths, hides
+    # every change that keeps the count.
+    assert domain_dict["gene_set"] == [
+        "Any", "gene1", "gene2", "gene3", "gene4", "gene5",
+    ]
+    assert domain_dict["functional_score"] == [
+        "All", "bed_annot1", "bed_annot4",
+    ]
+    assert domain_dict["functional_annotation"] == ["Any", "annot5", "annot6"]
 
-        gene_mat_header = gene_mat_f.readline()
-        gene_list_domains = gene_mat_header.strip().split()
-        gene_list_domains = gene_list_domains[2:]
+    bed_key_conf.unlink()
+    domain_list_path.unlink()
 
-    assert len(domain_dict["functional_annotation"]) == 1 + len(region_domains)
-    assert len(domain_dict["functional_score"]) == 1 + len(cons_domains)
-    assert len(domain_dict["gene_set"]) == 1 + len(gene_list_domains)
+
+def test_create_category_domain_list_finds_key_columns_by_name(
+    cwas_workspace, annotation_key_conf, tmp_path
+):
+    """The key columns are found by name, so their position must not matter.
+
+    A gene matrix whose key columns do not sit first is what tells the rule
+    apart from the one it replaced: dropping the first two columns would take
+    'ProteinCoding' for a key and leave 'gene_id' as a gene list.
+    """
+    create_annotation_keys_file(cwas_workspace)
+    bed_key_conf = cwas_workspace / "annotation_keys.yaml"
+    domain_list_path = cwas_workspace / "category_domain.yaml"
+    gene_matrix = tmp_path / "gene_matrix.txt"
+    gene_matrix.write_text(
+        "\t".join(["ProteinCoding", "gene_name", "asd1", "gene_id", "asd2"])
+        + "\n"
+    )
+
+    create.create_category_domain_list(
+        domain_list_path, bed_key_conf, gene_matrix
+    )
+
+    with domain_list_path.open("r") as domain_list_f:
+        domain_dict = yaml.safe_load(domain_list_f)
+
+    assert domain_dict["gene_set"] == ["Any", "ProteinCoding", "asd1", "asd2"]
+
+    bed_key_conf.unlink()
+    domain_list_path.unlink()
+
+
+def test_create_category_domain_list_rejects_a_repeated_key_column(
+    cwas_workspace, annotation_key_conf, tmp_path
+):
+    """A second ID column would otherwise be counted as a gene list."""
+    create_annotation_keys_file(cwas_workspace)
+    bed_key_conf = cwas_workspace / "annotation_keys.yaml"
+    gene_matrix = tmp_path / "gene_matrix.txt"
+    gene_matrix.write_text(
+        "\t".join(["gene_id", "ensembl_gene_id", "gene_name", "asd1"]) + "\n"
+    )
+
+    with pytest.raises(ValueError) as excinfo:
+        create.create_category_domain_list(
+            cwas_workspace / "category_domain.yaml", bed_key_conf, gene_matrix
+        )
+    assert "more than one gene ID column" in str(excinfo.value)
+
+    bed_key_conf.unlink()
+
+
+def test_create_category_domain_list_rejects_an_invalid_gene_id(
+    cwas_workspace, annotation_key_conf, tmp_path
+):
+    create_annotation_keys_file(cwas_workspace)
+    bed_key_conf = cwas_workspace / "annotation_keys.yaml"
+    gene_matrix = tmp_path / "gene_matrix.txt"
+    gene_matrix.write_text("gene_id\tgene_name\tasd1\nSAMD11\tSAMD11\t1\n")
+
+    with pytest.raises(ValueError) as excinfo:
+        create.create_category_domain_list(
+            cwas_workspace / "category_domain.yaml", bed_key_conf, gene_matrix
+        )
+
+    message = str(excinfo.value)
+    assert str(gene_matrix) in message
+    assert "line 2: 'SAMD11'" in message
+
+    bed_key_conf.unlink()
+
+
+def test_create_category_domain_list_accepts_a_utf8_bom(
+    cwas_workspace, annotation_key_conf, tmp_path
+):
+    create_annotation_keys_file(cwas_workspace)
+    bed_key_conf = cwas_workspace / "annotation_keys.yaml"
+    domain_list_path = cwas_workspace / "category_domain.yaml"
+    gene_matrix = tmp_path / "gene_matrix.txt"
+    gene_matrix.write_text(
+        "gene_id\tgene_name\tProteinCoding\n"
+        "ENSG00000187634\tSAMD11\t1\n",
+        encoding="utf-8-sig",
+    )
+
+    create.create_category_domain_list(
+        domain_list_path, bed_key_conf, gene_matrix
+    )
+
+    with domain_list_path.open("r") as domain_list_f:
+        domains = yaml.safe_load(domain_list_f)
+    assert domains["gene_set"] == ["Any", "ProteinCoding"]
 
     bed_key_conf.unlink()
     domain_list_path.unlink()

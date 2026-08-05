@@ -21,6 +21,11 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 from cwas.core.categorization.utils import extract_sublist_by_int, get_idx_dict, bitmask_to_indices
+from cwas.core.common import (
+    GENE_ID_SEPARATOR,
+    GENE_ID_SUFFIX_PATTERN,
+    resolve_tied_gene_id,
+)
 
 try:
     from cwas_core import categorize_variants as _rust_categorize
@@ -30,6 +35,20 @@ try:
     _USE_RUST = True
 except ImportError:
     _USE_RUST = False
+
+
+def _get_gene_ids(annotated_vcf: pd.DataFrame, field_name: str) -> np.ndarray:
+    """ Get the Ensembl gene IDs of a VEP field without their version suffix.
+
+    Gene IDs are used to match variants against the gene matrix because gene
+    symbols are not unique.
+    """
+    return (
+        annotated_vcf[field_name]
+        .astype(str)
+        .str.replace(GENE_ID_SUFFIX_PATTERN, "", regex=True)
+        .values
+    )
 
 
 class Categorizer:
@@ -430,22 +449,26 @@ class Categorizer:
         if 'lincRNA' in gene_set_annotation_idx:
             gene_set_annotation_idx.pop('lincRNA')
 
-        gene_symbols = annotated_vcf["SYMBOL"].values
-        gene_nearests = annotated_vcf["NEAREST"].values
+        gene_ids = _get_gene_ids(annotated_vcf, "Gene")
+        gene_nearests = _get_gene_ids(annotated_vcf, "NEAREST")
         gencodes = annotated_vcf["Consequence"].values  # GENCODE annotations
 
         annotation_int_list = []
         annotation_int_dict = {}
 
-        for symbol, nearest, gencode in zip(
-            gene_symbols, gene_nearests, gencodes
+        for gene_id, nearest, gencode in zip(
+            gene_ids, gene_nearests, gencodes
         ):
             gene = (
                 nearest
                 if "downstream_gene_variant" in gencode
                 or "intergenic_variant" in gencode
-                else symbol
+                else gene_id
             )
+
+            if GENE_ID_SEPARATOR in gene:
+                gene = resolve_tied_gene_id(gene, self._gene_matrix)
+
             annotation_int = annotation_int_dict.get(gene, 0)
 
             if annotation_int == 0:
@@ -467,8 +490,8 @@ class Categorizer:
 
     def annotate_gencode(self, annotated_vcf: pd.DataFrame) -> list:
         gencode_annotation_idx = get_idx_dict(self._category_domain["gencode"])
-        gene_symbols = annotated_vcf["SYMBOL"].values
-        gene_nearests = annotated_vcf["NEAREST"].values
+        gene_ids = _get_gene_ids(annotated_vcf, "Gene")
+        gene_nearests = _get_gene_ids(annotated_vcf, "NEAREST")
         gencodes = annotated_vcf["Consequence"].values
         lofs = annotated_vcf["LoF"].values
         lof_flags = annotated_vcf["LoF_flags"].values
@@ -476,15 +499,19 @@ class Categorizer:
 
         annotation_int_list = []
 
-        for symbol, nearest, gencode, lof, lof_flag, mis_score in zip(
-            gene_symbols, gene_nearests, gencodes, lofs, lof_flags, mis_scores
+        for gene_id, nearest, gencode, lof, lof_flag, mis_score in zip(
+            gene_ids, gene_nearests, gencodes, lofs, lof_flags, mis_scores
         ):
             gene = (
                 nearest
                 if "downstream_gene_variant" in gencode
                 or "intergenic_variant" in gencode
-                else symbol
+                else gene_id
             )
+
+            if GENE_ID_SEPARATOR in gene:
+                gene = resolve_tied_gene_id(gene, self._gene_matrix)
+
             gene_set_ = self._gene_matrix.get(gene, set())
             annotation_int = 0
             is_in_coding = False

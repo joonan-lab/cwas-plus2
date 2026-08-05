@@ -315,4 +315,7 @@ class VepCmdGenerator:
     @property
     def cmd_option_pick_nearest_gene(self) -> list:
         """Return options in order to pick the nearest gene"""
-        return ["--distance", "2000", "--nearest", "symbol", "--symbol"]
+        # The nearest gene is reported as an Ensembl gene ID because gene
+        # symbols are not unique. '--symbol' is kept so that the symbol is
+        # still available to label the output.
+        return ["--distance", "2000", "--nearest", "gene", "--symbol"]

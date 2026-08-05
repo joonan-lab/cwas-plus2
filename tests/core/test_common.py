@@ -157,3 +157,186 @@ def test_int_to_bit_arr_invalid_args():
 
     with pytest.raises(ValueError):
         _ = common.int_to_bit_arr(5, -1)
+
+
+# --- resolve_tied_gene_id ---
+
+# VEP reports every gene tied for nearest, joined by '&', in genomic
+# coordinate order. That order is not a ranking, so the gene matrix decides.
+_TIE_MATRIX = {
+    "ENSG_PC": {"ProteinCoding", "ASDTADAFDR03"},
+    "ENSG_PC2": {"ProteinCoding"},
+    "ENSG_RICH": {"lincRNA", "ASDTADAFDR03", "DDD"},
+    "ENSG_POOR": {"lincRNA", "DDD"},
+    "ENSG_BARE": set(),
+}
+
+
+def test_resolve_tied_gene_id_without_tie():
+    assert common.resolve_tied_gene_id("ENSG_PC", _TIE_MATRIX) == "ENSG_PC"
+    # A gene the matrix does not know about is still returned unchanged.
+    assert common.resolve_tied_gene_id("ENSG_X", _TIE_MATRIX) == "ENSG_X"
+
+
+def test_resolve_tied_gene_id_prefers_protein_coding():
+    """A protein-coding gene wins even when listed second and in fewer lists."""
+    assert (
+        common.resolve_tied_gene_id("ENSG_RICH&ENSG_PC2", _TIE_MATRIX)
+        == "ENSG_PC2"
+    )
+
+
+def test_resolve_tied_gene_id_prefers_more_gene_lists():
+    """Without a protein-coding gene, the gene in more gene lists wins."""
+    assert (
+        common.resolve_tied_gene_id("ENSG_POOR&ENSG_RICH", _TIE_MATRIX)
+        == "ENSG_RICH"
+    )
+
+
+def test_resolve_tied_gene_id_ignores_biotype_lists():
+    """ProteinCoding and lincRNA describe the biotype, so they do not count.
+
+    ENSG_PC2 and ENSG_POOR both belong to one non-biotype list... none and
+    one respectively, so the biotype lists must not tip the comparison.
+    """
+    assert common.tied_gene_priority(_TIE_MATRIX["ENSG_RICH"]) == (False, 2)
+    assert common.tied_gene_priority(_TIE_MATRIX["ENSG_POOR"]) == (False, 1)
+    assert common.tied_gene_priority(_TIE_MATRIX["ENSG_PC2"]) == (True, 0)
+
+
+def test_resolve_tied_gene_id_prefers_known_gene():
+    """A gene missing from the matrix ranks lowest."""
+    assert (
+        common.resolve_tied_gene_id("ENSG_UNKNOWN&ENSG_POOR", _TIE_MATRIX)
+        == "ENSG_POOR"
+    )
+
+
+def test_resolve_tied_gene_id_falls_back_to_the_first_gene():
+    """Equally ranked genes resolve to the one VEP listed first."""
+    assert (
+        common.resolve_tied_gene_id("ENSG_BARE&ENSG_UNKNOWN", _TIE_MATRIX)
+        == "ENSG_BARE"
+    )
+    assert (
+        common.resolve_tied_gene_id("ENSG_UNKNOWN&ENSG_BARE", _TIE_MATRIX)
+        == "ENSG_UNKNOWN"
+    )
+
+
+def test_normalize_gene_id_of_tied_gene_ids():
+    """Every ID of a tie must lose its version, not just the last one."""
+    assert (
+        common.normalize_gene_id("ENSG1.14&ENSG2.15") == "ENSG1&ENSG2"
+    )
+    assert common.normalize_gene_id("ENSG1.14") == "ENSG1"
+
+
+def test_normalize_gene_id_strips_par_y_suffix():
+    """GENCODE marks the chrY copy of a pseudoautosomal gene with '_PAR_Y'.
+
+    VEP never emits that suffix. Both copies share one Ensembl stable ID, and
+    VEP reports it for a variant on either chromosome, so the chrY row of a
+    gene matrix only matches once the suffix is gone.
+    """
+    assert (
+        common.normalize_gene_id("ENSG00000182378.14_PAR_Y")
+        == "ENSG00000182378"
+    )
+    # The version is not always present.
+    assert common.normalize_gene_id("ENSG00000182378_PAR_Y") == "ENSG00000182378"
+    # The chrX copy of the same gene normalizes to the same key.
+    assert common.normalize_gene_id("ENSG00000182378.14") == "ENSG00000182378"
+
+
+def test_normalize_gene_id_strips_par_y_of_tied_gene_ids():
+    assert (
+        common.normalize_gene_id("ENSG1.14_PAR_Y&ENSG2.15")
+        == "ENSG1&ENSG2"
+    )
+
+
+def test_normalize_gene_id_keeps_other_suffixes():
+    """Only the version and '_PAR_Y' are dropped."""
+    assert common.normalize_gene_id("ENSG1_PAR_X") == "ENSG1_PAR_X"
+    assert common.normalize_gene_id("ENSG1.14_OTHER") == "ENSG1.14_OTHER"
+    assert common.normalize_gene_id("ENSG1") == "ENSG1"
+
+
+@pytest.mark.parametrize(
+    "header,expected",
+    [
+        (["gene_id", "gene_name", "ProteinCoding"], (0, 1)),
+        (["ensembl_gene_id", "symbol", "ProteinCoding"], (0, 1)),
+        (["ProteinCoding", "GENE_NAME", "Gene_ID"], (2, 1)),
+        (["gene_id", "ProteinCoding"], (0, None)),
+    ],
+)
+def test_find_gene_key_columns(header, expected):
+    """The key columns are found by name, whatever their case or order."""
+    assert common.find_gene_key_columns(header) == expected
+
+
+def test_find_gene_key_columns_without_gene_id():
+    with pytest.raises(ValueError):
+        common.find_gene_key_columns(["gene_name", "ProteinCoding"])
+
+
+@pytest.mark.parametrize(
+    "header,kind",
+    [
+        (["gene_id", "ensembl_gene_id", "ProteinCoding"], "gene ID"),
+        (["ensembl_gene_id", "gene_id", "ProteinCoding"], "gene ID"),
+        (["gene_id", "gene_name", "symbol", "ProteinCoding"], "gene symbol"),
+    ],
+)
+def test_find_gene_key_columns_rejects_a_repeated_key_column(header, kind):
+    """A key column named twice is neither a second key nor a gene list.
+
+    Reading only the first left the second to be read as a gene list. In
+    extract_variant the rename of the ID column then produced two columns of
+    the same name, and the matrix died on an unrelated-looking AttributeError
+    while categorization read the very same file without complaint.
+    """
+    with pytest.raises(ValueError) as excinfo:
+        common.find_gene_key_columns(header)
+    assert f"more than one {kind} column" in str(excinfo.value)
+
+
+@pytest.mark.parametrize(
+    "gene_id",
+    [
+        "ENSG00000187634",
+        "ENSG00000187634.15",
+        "ENSG00000182378_PAR_Y",
+        "ENSG00000182378.14_PAR_Y",
+        "ENSMUSG00000000001.2",
+    ],
+)
+def test_check_gene_matrix_ids_accepts_complete_ensembl_ids(gene_id):
+    common.check_gene_matrix_ids([gene_id], "gene_matrix.txt")
+
+
+@pytest.mark.parametrize(
+    "gene_id",
+    [
+        "",
+        "SAMD11",
+        " ENSG00000187634",
+        "ENSG00000187634 ",
+        "ENSG00000187634junk",
+        "ENSG00000187634,ENSG00000188290",
+        "ENSG00000187634&ENSG00000188290",
+    ],
+)
+def test_check_gene_matrix_ids_rejects_invalid_values(gene_id):
+    with pytest.raises(ValueError) as excinfo:
+        common.check_gene_matrix_ids(
+            ["ENSG00000187634", gene_id], "gene_matrix.txt"
+        )
+
+    message = str(excinfo.value)
+    assert "gene_matrix.txt" in message
+    assert "line 3" in message
+    assert repr(gene_id) in message

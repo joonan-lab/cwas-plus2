@@ -96,6 +96,29 @@ def test_cmd(vep_path, input_vcf_path, vep_dir, vep_conserv, vep_loftee, vep_anc
         f"-o {input_vcf_path.replace('.vcf', '.vep.vcf')}" in vep_inst.cmd_str
     )
 
+def test_cmd_picks_nearest_gene_by_id(vep_path, input_vcf_path, vep_dir, vep_conserv, vep_loftee, vep_ances, vep_gerp, vep_msdb, vep_mskey):
+    """The nearest gene must be requested as an Ensembl gene ID.
+
+    Categorization matches genes by ID because gene symbols are not unique,
+    so '--nearest symbol' would make every intergenic and downstream variant
+    fail to match the gene matrix. '--symbol' stays so that the symbol is
+    still available to label the output.
+    """
+    vep_inst = VepCmdGenerator(vep_path=vep_path, input_vcf_path=input_vcf_path,
+                               vep_cache_path=str(vep_dir), vep_conservation_path=vep_conserv, vep_loftee_path=vep_loftee,
+                               vep_human_ancestor_fa_path=vep_ances, vep_gerp_bw_path=vep_gerp,
+                               vep_mis_db_path=vep_msdb, vep_mis_info_key=vep_mskey, num_proc=1)
+    assert vep_inst.cmd_option_pick_nearest_gene == [
+        "--distance",
+        "2000",
+        "--nearest",
+        "gene",
+        "--symbol",
+    ]
+    assert "--nearest gene" in vep_inst.cmd_str
+    assert "--nearest symbol" not in vep_inst.cmd_str
+
+
 @pytest.fixture(scope="module", autouse=True)
 def create_vep_dir(
     vep_dir, vep_conserv, vep_loftee, vep_msdb, vep_ances, vep_gerp

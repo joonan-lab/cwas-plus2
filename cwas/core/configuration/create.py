@@ -4,6 +4,7 @@ Create configuration files for CWAS
 from pathlib import Path
 
 import yaml
+from cwas.core.common import check_gene_matrix_ids, find_gene_key_columns
 from cwas.core.configuration.settings import (
     get_default_domains,
     get_domain_types,
@@ -38,10 +39,21 @@ def create_category_domain_list(
     cons_domains = bed_key_dict['functional_score'].values()
     region_domains = bed_key_dict['functional_annotation'].values()
     
-    with gene_mat_path.open("r") as gene_mat_f:
+    with gene_mat_path.open("r", encoding="utf-8-sig") as gene_mat_f:
         header = gene_mat_f.readline()
-        columns = header.strip().split()
-        gene_list_domains = columns[2:]  # Remove 'gene_id' and 'gene_name'
+        columns = header.rstrip("\n").split("\t")
+        # Every column except the gene ID and the gene symbol is a gene list.
+        gene_id_idx, gene_name_idx = find_gene_key_columns(columns)
+        gene_list_domains = [
+            col
+            for i, col in enumerate(columns)
+            if i != gene_id_idx and i != gene_name_idx
+        ]
+        gene_ids = [
+            line.rstrip("\n").split("\t")[gene_id_idx]
+            for line in gene_mat_f
+        ]
+        check_gene_matrix_ids(gene_ids, gene_mat_path)
 
     domains = get_default_domains()
     domains["functional_annotation"] += region_domains

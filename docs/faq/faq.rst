@@ -132,7 +132,7 @@ How to add or remove a gene set
 
 Modify the txt file used for gene set (**GENE_MATRIX**).
 
-The gene set contains gene ID, gene name and columns that represents each set of genes. To add or remove gene sets, users can add or remove columns.
+The gene set contains gene ID, gene name and columns that represents each set of genes. To add or remove gene sets, users can add or remove columns. Keep the ``gene_id`` column: it is the key used to match genes, because gene symbols are not unique. The ``gene_name`` column is optional and is used only to label the output.
 
 +--------------------+-----------+---------------+---------+--------------+
 | gene_id            | gene_name | ProteinCoding | lincRNA | ASDTADAFDR03 |
