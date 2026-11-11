@@ -291,7 +291,7 @@ class Categorizer:
         sub = full_sparse[keep][:, keep]
         matched_names = [all_names[i] for i in keep_indices]
 
-        df = pd.DataFrame(sub.toarray().astype(np.int32), index=matched_names, columns=matched_names)
+        df = pd.DataFrame(sub.astype(np.int32).toarray(), index=matched_names, columns=matched_names)
         return df.reindex(index=categories, columns=categories, fill_value=0).astype(int)
 
     def _get_intersection_python(self, annotated_vcf: pd.DataFrame):
