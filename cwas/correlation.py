@@ -11,6 +11,9 @@ import yaml
 import pandas as pd
 import numpy as np
 from functools import partial
+from concurrent.futures import ProcessPoolExecutor
+from collections import deque
+from tempfile import TemporaryDirectory
 
 import cwas.utils.log as log
 from cwas.core.categorization.categorizer import Categorizer, _build_xtx_chunk
@@ -49,12 +52,15 @@ class Correlation(DomainListMixin, Runnable):
             "No. worker processes for the categorization",
             f"{args.num_proc: ,d}",
         )
+        log.print_arg("No. category-pair partitions", args.pair_partitions)
         log.print_arg("Genereate an intersection matrix", (False if args.generate_inter_matrix is None else True))
         log.print_arg("Genereate a correlation matrix", (False if args.generate_corr_matrix is None else True))
 
     @staticmethod
     def _check_args_validity(args: argparse.Namespace):
         check_num_proc(args.num_proc)
+        if args.pair_partitions < 1:
+            raise ValueError("pair_partitions must be a positive integer")
         if args.generate_corr_matrix == 'variant':
             check_is_file(args.annot_path)
         check_is_dir(args.cat_path)
@@ -168,24 +174,11 @@ class Correlation(DomainListMixin, Runnable):
         return self.output_dir_path / f_name
 
     def run(self):
-        # For variant mode with multiple domains, compute full sparse intersection once
-        if (self.generate_corr_matrix == "variant"
-                and len(self.domain_list) > 1
-                and self.num_proc > 1):
-            log.print_progress("Pre-computing full sparse intersection matrix for multi-domain run")
-            # Temporarily set domain to 'all' to get full intersection
-            self._domain = 'all'
-            self.filtered_combs = pd.Series(self.categories)
-            self._full_sparse_intersection = self.get_intersection_matrix_with_mp()
-        else:
-            self._full_sparse_intersection = None
-
         for i in self.domain_list:
             self._domain = i
             log.print_progress(f"Generate correlation matrix for domain: {i}")
             self.generate_correlation_matrix()
             self.save_result()
-        self._full_sparse_intersection = None
         log.print_progress("Done")
 
     def generate_correlation_matrix(self):
@@ -222,35 +215,9 @@ class Correlation(DomainListMixin, Runnable):
             self._correlation_matrix = intersection_matrix / np.outer(diag_sqrt, diag_sqrt)
 
         elif self.generate_corr_matrix == "variant":
-            # Variant mode: use sparse X.T @ X (no zarr loading needed)
             log.print_progress("Get an intersection matrix between categories using the number of variants")
-
-            if hasattr(self, '_full_sparse_intersection') and self._full_sparse_intersection is not None:
-                # Multi-domain: extract subset from cached full sparse intersection
-                intersection_sparse = self._extract_domain_from_sparse(self._full_sparse_intersection)
-            else:
-                intersection_sparse = (
-                    self.get_intersection_matrix(self.annotated_vcf, self.categorizer, self.filtered_combs)
-                    if self.num_proc == 1
-                    else self.get_intersection_matrix_with_mp()
-                )
-
-            log.print_progress("Calculate a correlation matrix")
-
-            if sparse.issparse(intersection_sparse):
-                # Sparse correlation: D @ intersection @ D where D = diag(1/sqrt(diag))
-                diag_vals = np.array(intersection_sparse.diagonal(), dtype=np.float64)
-                diag_vals[diag_vals == 0] = 1.0  # avoid division by zero
-                inv_sqrt = 1.0 / np.sqrt(diag_vals)
-                D = sparse.diags(inv_sqrt)
-                self._intersection_matrix = intersection_sparse
-                self._correlation_matrix = (D @ intersection_sparse @ D).tocsr()
-            else:
-                # Dense DataFrame path (single-process fallback)
-                diag_sqrt = np.sqrt(np.diag(intersection_sparse))
-                diag_sqrt[diag_sqrt == 0] = 1.0
-                self._intersection_matrix = intersection_sparse
-                self._correlation_matrix = intersection_sparse / np.outer(diag_sqrt, diag_sqrt)
+            self._intersection_matrix = None
+            self._correlation_matrix = None
 
     @staticmethod
     def process_columns(column_range, matrix: pd.DataFrame) -> list:
@@ -365,6 +332,10 @@ class Correlation(DomainListMixin, Runnable):
     def save_result(self):
         from scipy import sparse
 
+        if self.generate_corr_matrix == 'variant':
+            self._save_variant_pair_results()
+            return
+
         if self.generate_inter_matrix == True:
             log.print_progress("Save the intersection matrix to file")
 
@@ -399,3 +370,167 @@ class Correlation(DomainListMixin, Runnable):
             root['metadata'].attrs['category'] = category_names
             root.create_dataset('data', data=self._correlation_matrix, chunks=(1000, 1000), dtype='float64')
 
+    def _save_variant_pair_results(self):
+        names = list(self.filtered_combs)
+        n = len(names)
+        chunk_size = 1000
+        suffix = '' if self._domain == 'all' else f'.{self._domain}'
+        corr_path = Path(str(self.matrix_path).replace('.zarr', f'{suffix}.zarr'))
+        int_path = Path(str(self.intersection_matrix_path).replace('.zarr', f'{suffix}.zarr'))
+        with TemporaryDirectory(prefix='cwas_pairs_', dir=self.output_dir_path) as directory:
+            log.print_progress('Build category membership indices in batches')
+            counts = self.categorizer.write_category_memberships(self.annotated_vcf, names, directory)
+            outputs = []
+            for path, dtype in [(corr_path, 'float64')] + ([(int_path, 'int32')] if self.generate_inter_matrix else []):
+                root = zarr.open(path, mode='w')
+                root.create_group('metadata')
+                root['metadata'].attrs['category'] = names
+                outputs.append(root.create_dataset('data', shape=(n, n), chunks=(chunk_size, chunk_size), dtype=dtype, fill_value=0))
+            corr = outputs[0]
+            inter = outputs[1] if self.generate_inter_matrix else None
+            writer = _PairChunkWriter(corr, inter, counts, chunk_size)
+            for start in range(0, n, chunk_size):
+                writer.select(start, start)
+                end = min(n, start + chunk_size)
+                idx = np.arange(end - start)
+                writer.block[idx, idx] = counts[start:end]
+                writer.flush()
+            total = n * (n - 1) // 2
+            partitions = self.args.pair_partitions
+            log.print_progress(f'Calculate {total:,} unique non-diagonal pairs in {partitions} partitions with {self.num_proc} workers')
+            tasks = iter(_category_pair_tasks(n, chunk_size))
+            remaining = None
+            executor = None
+            try:
+                if self.num_proc > 1:
+                    executor = ProcessPoolExecutor(max_workers=self.num_proc, initializer=_init_pair_worker, initargs=(directory,))
+                else:
+                    _init_pair_worker(directory)
+                for part in range(partitions):
+                    size = total // partitions + (part < total % partitions)
+                    def partition_tasks():
+                        nonlocal remaining
+                        left = size
+                        while left:
+                            i, start, end = remaining if remaining is not None else next(tasks)
+                            stop = min(end, start + left)
+                            remaining = (i, stop, end) if stop < end else None
+                            left -= stop - start
+                            yield i, start, stop
+                    results = _bounded_pair_results(executor, partition_tasks(), self.num_proc)
+                    for i, start, values in results:
+                        writer.write(i, start, values)
+                    writer.flush()
+                    log.print_progress(f'Category-pair partition {part + 1}/{partitions} complete ({size:,} pairs)')
+            finally:
+                if executor is not None:
+                    executor.shutdown(wait=True)
+                _close_pair_worker()
+
+
+_PAIR_INDICES = None
+_PAIR_OFFSETS = None
+
+
+def _init_pair_worker(directory):
+    global _PAIR_INDICES, _PAIR_OFFSETS
+    _PAIR_INDICES = np.load(Path(directory) / 'indices.npy', mmap_mode='r')
+    _PAIR_OFFSETS = np.load(Path(directory) / 'offsets.npy', mmap_mode='r')
+
+
+def _close_pair_worker():
+    global _PAIR_INDICES, _PAIR_OFFSETS
+    _PAIR_INDICES = None
+    _PAIR_OFFSETS = None
+
+
+def _count_pair_batch(task):
+    i, start, end = task
+    left = _PAIR_INDICES[_PAIR_OFFSETS[i]:_PAIR_OFFSETS[i + 1]]
+    values = np.zeros(end - start, dtype=np.int32)
+    if len(left):
+        for j in range(start, end):
+            right = _PAIR_INDICES[_PAIR_OFFSETS[j]:_PAIR_OFFSETS[j + 1]]
+            if len(right) and left[0] <= right[-1] and right[0] <= left[-1]:
+                values[j - start] = np.intersect1d(left, right, assume_unique=True).size
+    return i, start, values
+
+
+def _category_pair_tasks(n, chunk_size):
+    for row in range(0, n, chunk_size):
+        for col in range(row, n, chunk_size):
+            for i in range(row, min(n, row + chunk_size)):
+                start = max(i + 1, col)
+                end = min(n, col + chunk_size)
+                if start < end:
+                    yield i, start, end
+
+
+def _bounded_pair_results(executor, tasks, workers):
+    if executor is None:
+        for task in tasks:
+            yield _count_pair_batch(task)
+        return
+    pending = deque()
+    tasks = iter(tasks)
+    for _ in range(2 * workers):
+        task = next(tasks, None)
+        if task is None:
+            break
+        pending.append(executor.submit(_count_pair_batch, task))
+    while pending:
+        yield pending.popleft().result()
+        task = next(tasks, None)
+        if task is not None:
+            pending.append(executor.submit(_count_pair_batch, task))
+
+
+class _PairChunkWriter:
+    def __init__(self, corr, inter, counts, chunk_size):
+        self.corr = corr
+        self.inter = inter
+        self.counts = counts
+        self.chunk_size = chunk_size
+        self.key = None
+        self.block = None
+
+    def select(self, row, col):
+        key = row // self.chunk_size * self.chunk_size, col // self.chunk_size * self.chunk_size
+        if key == self.key:
+            return
+        self.flush()
+        self.key = key
+        r, c = key
+        n = len(self.counts)
+        self.rows = slice(r, min(r + self.chunk_size, n))
+        self.cols = slice(c, min(c + self.chunk_size, n))
+        if self.inter is not None:
+            self.block = np.asarray(self.inter[self.rows, self.cols], dtype=np.int32)
+        else:
+            denom = np.sqrt(self.counts[self.rows].astype(np.float64)[:, None] * self.counts[self.cols].astype(np.float64)[None, :])
+            self.block = np.rint(self.corr[self.rows, self.cols] * denom).astype(np.int32)
+
+    def write(self, i, start, values):
+        self.select(i, start)
+        r, c = self.key
+        self.block[i - r, start - c:start - c + len(values)] = values
+        if r == c:
+            self.block[start - c:start - c + len(values), i - r] = values
+
+    def flush(self):
+        if self.key is None:
+            return
+        r, c = self.key
+        if self.inter is not None:
+            self.inter[self.rows, self.cols] = self.block
+            if r != c:
+                self.inter[self.cols, self.rows] = self.block.T
+        denom = np.sqrt(self.counts[self.rows].astype(np.float64)[:, None] * self.counts[self.cols].astype(np.float64)[None, :])
+        values = np.divide(self.block, denom, out=np.zeros_like(denom), where=denom != 0)
+        if r == c:
+            np.fill_diagonal(values, 1.0)
+        self.corr[self.rows, self.cols] = values
+        if r != c:
+            self.corr[self.cols, self.rows] = values.T
+        self.key = None
+        self.block = None

@@ -291,7 +291,7 @@ class Categorizer:
         sub = full_sparse[keep][:, keep]
         matched_names = [all_names[i] for i in keep_indices]
 
-        df = pd.DataFrame(sub.toarray().astype(np.int32), index=matched_names, columns=matched_names)
+        df = pd.DataFrame(sub.astype(np.int32).toarray(), index=matched_names, columns=matched_names)
         return df.reindex(index=categories, columns=categories, fill_value=0).astype(int)
 
     def _get_intersection_python(self, annotated_vcf: pd.DataFrame):
@@ -650,6 +650,43 @@ class Categorizer:
             return ['All'] + [item for item in labels if item in self._category_domain['functional_score']]
         elif annotation_term_type == 'functional_annotation':
             return ['Any'] + [item for item in labels if item in self._category_domain['functional_annotation']]
+
+    def write_category_memberships(self, annotated_vcf, categories, directory, batch_size=256):
+        from pathlib import Path
+
+        if len(annotated_vcf) > np.iinfo(np.int32).max:
+            raise ValueError('Variant count exceeds int32 intersection capacity')
+        all_names = self.get_all_category_names()
+        mapping = {name: i for i, name in enumerate(all_names)}
+        missing = [name for name in categories if name not in mapping]
+        if missing:
+            raise ValueError(f'Categories absent from annotation definitions: {missing[:5]}')
+        keep = np.array([mapping[name] for name in categories], dtype=np.int64)
+        counts = np.zeros(len(categories), dtype=np.int64)
+        directory = Path(directory)
+        def batches():
+            for start in range(0, len(annotated_vcf), batch_size):
+                matrix = self.build_indicator_matrix_sparse(annotated_vcf.iloc[start:start + batch_size])[:, keep].tocsc()
+                matrix.sum_duplicates()
+                matrix.sort_indices()
+                yield start, matrix
+        for start, matrix in batches():
+            counts += np.diff(matrix.indptr)
+        offsets = np.empty(len(categories) + 1, dtype=np.int64)
+        offsets[0] = 0
+        np.cumsum(counts, out=offsets[1:])
+        np.save(directory / 'offsets.npy', offsets)
+        indices = np.lib.format.open_memmap(directory / 'indices.npy', mode='w+', dtype=np.int32, shape=(int(offsets[-1]),))
+        positions = offsets[:-1].copy()
+        for start, matrix in batches():
+            for cat in np.flatnonzero(np.diff(matrix.indptr)):
+                local = matrix.indices[matrix.indptr[cat]:matrix.indptr[cat + 1]]
+                end = positions[cat] + len(local)
+                indices[positions[cat]:end] = local + start
+                positions[cat] = end
+        indices.flush()
+        del indices
+        return counts
 
     def build_indicator_matrix_sparse(self, annotated_vcf: pd.DataFrame):
         """Build sparse binary indicator matrix X where X[v,c]=1 if variant v belongs to category c.

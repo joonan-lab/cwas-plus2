@@ -1183,6 +1183,14 @@ def correlation() -> argparse.ArgumentParser:
         help="Number of worker processes for the categorization. Recommend using only one-third of available cores to prevent memory errors. (default: 1)",
         default=1,
     )
+    optional.add_argument(
+        "--pair_partitions",
+        dest="pair_partitions",
+        required=False,
+        type=int,
+        default=8,
+        help="Number of sequential partitions of unique non-diagonal category pairs in variant mode (default: 8).",
+    )
     required.add_argument(
         "-cm",
         "--corr_matrix",
